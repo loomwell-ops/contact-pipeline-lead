@@ -71,14 +71,14 @@ let tagPos = null;
 function moveTagPill(animate) { // same leading/trailing-edge stretch as the rail pill
   const a = $('.tag-pill.on'), p = $('#tagPill'); if (!a || !p) return;
   const x = a.offsetLeft, y = a.offsetTop, w = a.offsetWidth, h = a.offsetHeight, from = tagPos;
-  tagPos = { x, y };
+  tagPos = { x, y, w };
   p.getAnimations().forEach(n => n.cancel());
   p.style.width = w + 'px'; p.style.height = h + 'px'; p.style.transform = `translate(${x}px, ${y}px)`;
   if (animate !== true || !from || (from.x === x && from.y === y) || reduced()) return;
-  if (from.y !== y) return void p.animate([{ transform: `translate(${from.x}px, ${from.y}px)` }, { transform: `translate(${x}px, ${y}px)` }], { duration: 260, easing: 'cubic-bezier(.22,1,.36,1)' });
-  const sx = Math.min(x, from.x), sw = w + Math.abs(x - from.x);
+  if (from.y !== y) return void p.animate([{ transform: `translate(${from.x}px, ${from.y}px)`, width: from.w + 'px' }, { transform: `translate(${x}px, ${y}px)`, width: w + 'px' }], { duration: 260, easing: 'cubic-bezier(.22,1,.36,1)' });
+  const sx = Math.min(x, from.x), sw = Math.max(x + w, from.x + from.w) - sx;
   p.animate([
-    { transform: `translate(${from.x}px, ${y}px)`, width: w + 'px', easing: 'cubic-bezier(.2,.9,.3,1)' },
+    { transform: `translate(${from.x}px, ${y}px)`, width: from.w + 'px', easing: 'cubic-bezier(.2,.9,.3,1)' },
     { transform: `translate(${sx}px, ${y}px)`, width: sw + 'px', offset: .38, easing: 'cubic-bezier(.34,1.45,.64,1)' },
     { transform: `translate(${x}px, ${y}px)`, width: w + 'px' }
   ], { duration: 440 });
@@ -296,7 +296,7 @@ function askNewPassword() {
 }
 $('#logout').onclick = async () => {
   if (dirty && !confirm('Discard unsaved changes and log out?')) return;
-  manualOut = true; await sb.auth.signOut(); closeModal(); resetState(); show(false);
+  await flushUndo(); manualOut = true; await sb.auth.signOut(); closeModal(); resetState(); show(false);
 };
 sb.auth.getSession().then(({ data }) => data.session ? start() : show(false));
 sb.auth.onAuthStateChange(ev => {
@@ -339,7 +339,7 @@ async function load() {
 $$('#railNav button').forEach(b => b.onclick = () => { if (dirty && !confirm('Discard unsaved changes?')) return; dirty = false; S.view = b.dataset.v; render(true); });
 let enterT;
 function startEnter() { const v = $('#view'); clearTimeout(enterT); v.classList.remove('enter'); void v.offsetWidth; v.classList.add('enter'); enterT = setTimeout(() => v.classList.remove('enter'), 1000); }
-function indexStagger() { ['.colw', '.card', '#rows tr'].forEach(s => $$(s, $('#view')).forEach((el, i) => el.style.setProperty('--i', Math.min(i, 12)))); }
+function indexStagger() { ['.colw', '.card', '#rows tr', '.rp-row'].forEach(s => $$(s, $('#view')).forEach((el, i) => el.style.setProperty('--i', Math.min(i, 12)))); }
 function render(nav) {
   $$('#railNav button').forEach(b => { const on = b.dataset.v === S.view; b.classList.toggle('on', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   movePill(nav === true);
@@ -699,6 +699,7 @@ function viewSettings() {
         <div class="row" style="margin-top:16px"><input id="ns" placeholder="New stage name"><button class="pri" id="nsb">+ Add stage</button></div>
       </div>
 
+      <div class="settings-col">
       <div class="settings-card">
         <h2>Pipelines</h2>
         <p class="sub">Rename pipelines or switch which one the board and stages show.</p>
@@ -720,6 +721,7 @@ function viewSettings() {
           <button id="setDeals">Export Deals CSV</button>
           <button id="setBak">Full JSON Backup</button>
         </div>
+      </div>
       </div>
     </div>`;
 

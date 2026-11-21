@@ -758,3 +758,6 @@ tbody tr.more td { text-align: center; }
 .rls-dot { display: inline-block; position: relative; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: var(--won); vertical-align: 1px; }
 .rls-dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 1px solid var(--won); animation: rlsPulse 2.2s ease-out infinite; }
 @keyframes rlsPulse { 0% { transform: scale(1); opacity: .8; } 100% { transform: scale(3.2); opacity: 0; } }
+
+.settings-col { display: grid; gap: 18px; align-content: start; }
+#view.enter .rp-t i { transform-origin: left; animation: grow .65s cubic-bezier(.22, 1, .36, 1) backwards; animation-delay: calc(var(--i, 0) * .03s + .15s); }
