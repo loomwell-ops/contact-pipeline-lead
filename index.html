@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CRM</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="login" hidden>
+  <form id="loginForm" class="box">
+    <h1 id="loginBrand"></h1>
+    <label>Email<input id="email" type="email" autocomplete="username" required></label>
+    <label>Password<input id="password" type="password" autocomplete="current-password" required></label>
+    <button class="pri" id="loginBtn">Log in</button>
+  </form>
+</div>
+<div id="app" hidden>
+  <header>
+    <b id="brand"></b>
+    <nav>
+      <button data-v="contacts">Contacts</button>
+      <button data-v="pipeline">Pipeline</button>
+      <button data-v="settings">Settings</button>
+    </nav>
+    <button id="logout">Log out</button>
+  </header>
+  <main id="view"></main>
+</div>
+<div id="modal" hidden></div>
+<div id="toast"></div>
+<!-- Pinned versions so a new release can never change behavior -->
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
