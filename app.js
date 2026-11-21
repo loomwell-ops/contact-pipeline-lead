@@ -65,6 +65,37 @@ function movePill(animate) {
 }
 window.addEventListener('resize', movePill);
 
+// ---------- collapsible rail (desktop) ----------
+const reduced = () => matchMedia('(prefers-reduced-motion:reduce)').matches;
+let tagPos = null;
+function moveTagPill(animate) { // same leading/trailing-edge stretch as the rail pill
+  const a = $('.tag-pill.on'), p = $('#tagPill'); if (!a || !p) return;
+  const x = a.offsetLeft, y = a.offsetTop, w = a.offsetWidth, h = a.offsetHeight, from = tagPos;
+  tagPos = { x, y };
+  p.getAnimations().forEach(n => n.cancel());
+  p.style.width = w + 'px'; p.style.height = h + 'px'; p.style.transform = `translate(${x}px, ${y}px)`;
+  if (animate !== true || !from || (from.x === x && from.y === y) || reduced()) return;
+  if (from.y !== y) return void p.animate([{ transform: `translate(${from.x}px, ${from.y}px)` }, { transform: `translate(${x}px, ${y}px)` }], { duration: 260, easing: 'cubic-bezier(.22,1,.36,1)' });
+  const sx = Math.min(x, from.x), sw = w + Math.abs(x - from.x);
+  p.animate([
+    { transform: `translate(${from.x}px, ${y}px)`, width: w + 'px', easing: 'cubic-bezier(.2,.9,.3,1)' },
+    { transform: `translate(${sx}px, ${y}px)`, width: sw + 'px', offset: .38, easing: 'cubic-bezier(.34,1.45,.64,1)' },
+    { transform: `translate(${x}px, ${y}px)`, width: w + 'px' }
+  ], { duration: 440 });
+}
+window.addEventListener('resize', () => moveTagPill());
+function setRail(open, persist) {
+  const t = $('#railToggle');
+  $('#app').classList.toggle('rail-open', open);
+  t.setAttribute('aria-expanded', open); t.setAttribute('aria-label', open ? 'Collapse sidebar' : 'Expand sidebar'); t.dataset.tip = open ? 'Collapse' : 'Expand';
+  if (!persist) return;
+  try { localStorage.setItem('crm-rail', open ? '1' : '0'); } catch {}
+  const t0 = performance.now(); // keep the pill wrapped around the button while the column animates
+  (function f() { movePill(); moveTagPill(); if (performance.now() - t0 < 380) requestAnimationFrame(f); })();
+}
+try { if (localStorage.getItem('crm-rail') === '1') setRail(true, false); } catch {}
+$('#railToggle').onclick = () => setRail(!$('#app').classList.contains('rail-open'), true);
+
 // ---------- helpers ----------
 let tt;
 function toast(msg, good) { // FR-12: every failure is visible
@@ -99,6 +130,146 @@ const contactById = id => S.contacts.find(c => c.id === id);
 const stageName = id => (S.stages.find(s => s.id === id) || {}).name || '';
 const statusFor = n => { n = (n || '').trim().toLowerCase(); return n === 'won' || n === 'lost' ? n : 'open'; };
 const isDesktopSplit = () => window.innerWidth > 1060;
+
+
+// ---------- undo toast: the real delete only runs after 6s ----------
+let undoT, undoFn = null;
+async function flushUndo() { clearTimeout(undoT); const f = undoFn; undoFn = null; if (!f) return; $('#toast').className = ''; try { await f(); } catch { await load(); render(); } }
+function undoable(msg, commit, revert) {
+  flushUndo();
+  const t = $('#toast'); clearTimeout(tt); t.innerHTML = `${esc(msg)} <button type="button" id="undoBtn">Undo</button>`; t.className = 'show good';
+  undoFn = commit;
+  $('#undoBtn').onclick = () => { clearTimeout(undoT); undoFn = null; t.className = ''; revert(); };
+  undoT = setTimeout(flushUndo, 6000);
+}
+window.addEventListener('pagehide', () => { if (undoFn) undoFn(); });
+function download(name, text, type) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\uFEFF' + text], { type })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+const csvQ = v => { let x = String(v ?? ''); if (/^[=+\-@\t\r]/.test(x) && !/^[+-]?[\d\s().-]+$/.test(x)) x = "'" + x; return '"' + x.replace(/"/g, '""') + '"'; };
+function exportDeals() {
+  const L = [['title', 'contact', 'email', 'value', 'stage', 'status', 'created'].join(',')].concat(S.deals.map(d => { const c = contactById(d.contact_id) || {}; return [d.title, cname(c), c.email, d.value, stageName(d.stage_id), d.status, d.created_at].map(csvQ).join(','); }));
+  download('deals-' + new Date().toISOString().slice(0, 10) + '.csv', L.join('\r\n'), 'text/csv');
+}
+function exportBackup() { download('crm-backup-' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify({ exported: new Date().toISOString(), pipeline: S.pipeline, stages: S.stages, contacts: S.contacts, deals: S.deals }, null, 2), 'application/json'); }
+
+// ---------- command palette (Ctrl/Cmd+K) + N for new contact ----------
+function openPalette() {
+  if ($('#app').hidden || (dirty && !confirm('Discard unsaved changes?'))) return;
+  modal('<h2 style="display:none">Search</h2><input id="pq" class="pal-q" placeholder="Jump to a contact, deal or screen…" autocomplete="off"><div id="pr" class="pal-list" role="listbox"></div>', 'pal');
+  let items = [], at = 0;
+  const go = it => { dirty = false; closeModal(); it.run(); };
+  const draw = () => {
+    const q = $('#pq').value.trim().toLowerCase(), has = v => (v || '').toLowerCase().includes(q);
+    const acts = [['New contact', () => openContact(null)], ['New deal', () => openDeal(null)], ['Go to Pipeline', () => { S.view = 'pipeline'; render(true); }], ['Go to Contacts', () => { S.view = 'contacts'; render(true); }], ['Go to Reports', () => { S.view = 'reports'; render(true); }], ['Go to Settings', () => { S.view = 'settings'; render(true); }]]
+      .filter(x => !q || has(x[0])).map(([l, run]) => ({ l, k: 'Action', run }));
+    const cs = !q ? [] : S.contacts.filter(c => [cname(c), c.email, c.phone, c.company].some(has)).slice(0, 6)
+      .map(c => ({ l: cname(c), k: 'Contact', s: c.company || c.email || '', run: () => { S.q = ''; S.tag = ''; S.view = 'contacts'; S.selectedContact = c.id; render(true); if (!isDesktopSplit()) openContact(c.id); } }));
+    const ds = !q ? [] : S.deals.filter(d => has(d.title)).slice(0, 6).map(d => ({ l: d.title, k: 'Deal', s: money(d.value), run: () => { S.view = 'pipeline'; render(true); openDeal(d.id); } }));
+    items = [...cs, ...ds, ...acts]; at = Math.min(at, Math.max(0, items.length - 1));
+    $('#pr').innerHTML = items.map((it, i) => `<div class="pal-it ${i === at ? 'on' : ''}" role="option" data-i="${i}"><span>${esc(it.l)}${it.s ? ` <small>${esc(it.s)}</small>` : ''}</span><em>${it.k}</em></div>`).join('') || '<p class="muted" style="padding:10px">No matches.</p>';
+    $$('.pal-it').forEach(el => el.onclick = () => go(items[+el.dataset.i]));
+  };
+  $('#pq').oninput = () => { at = 0; draw(); };
+  $('#pq').onkeydown = e => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); at = (at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % (items.length || 1); draw(); const on = $('.pal-it.on'); if (on) on.scrollIntoView({ block: 'nearest' }); }
+    else if (e.key === 'Enter' && items[at]) { e.preventDefault(); go(items[at]); }
+  };
+  draw();
+}
+document.addEventListener('keydown', e => {
+  if ($('#app').hidden) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); return openPalette(); }
+  if (e.key.toLowerCase() === 'n' && !e.ctrlKey && !e.metaKey && !e.altKey && $('#modal').hidden && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) { e.preventDefault(); openContact(null); }
+});
+
+// ---------- reports (computed from data already loaded) ----------
+function viewReports() {
+  $('#viewActions').innerHTML = '<button id="rprint">Print / Save PDF</button>';
+  const sum = a => a.reduce((x, d) => x + Number(d.value || 0), 0);
+  const won = S.deals.filter(d => d.status === 'won'), lost = S.deals.filter(d => d.status === 'lost'), open = S.deals.filter(d => d.status === 'open');
+  const closed = won.length + lost.length, rate = closed ? Math.round(won.length / closed * 100) : 0;
+  const bars = items => { const mx = Math.max(1, ...items.map(i => i.v)); return items.length ? `<div class="rp-bars">${items.map(i => `<div class="rp-row"><span class="rp-l">${esc(i.l)}</span><span class="rp-t"><i style="width:${(i.v / mx * 100).toFixed(1)}%"></i></span><b>${esc(i.t)}</b></div>`).join('')}</div>` : '<p class="muted">No data yet.</p>'; };
+  const wk = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return +x; };
+  const weeks = Array.from({ length: 8 }, (_, i) => { const d = new Date(wk(Date.now())); d.setDate(d.getDate() - 7 * (7 - i)); return d; });
+  const perWeek = weeks.map(d => { const v = S.contacts.filter(c => wk(c.created_at) === +d).length; return { l: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), v, t: String(v) }; });
+  const src = {}, bump = k => src[k] || (src[k] = { n: 0, w: 0, c: 0 });
+  S.contacts.forEach(c => bump(c.source || 'Unknown').n++);
+  S.deals.forEach(d => { const c = contactById(d.contact_id), s = bump((c && c.source) || 'Unknown'); if (d.status === 'won') { s.w++; s.c++; } else if (d.status === 'lost') s.c++; });
+  const bySrc = Object.entries(src).sort((x, y) => y[1].n - x[1].n).slice(0, 8).map(([k, s]) => ({ l: k, v: s.c ? s.w / s.c * 100 : 0, t: (s.c ? `${s.w}/${s.c} won (${Math.round(s.w / s.c * 100)}%)` : 'no closed deals') + ` · ${s.n} lead${s.n === 1 ? '' : 's'}` }));
+  const withDeals = new Set(S.deals.map(d => d.contact_id)).size, wonC = new Set(won.map(d => d.contact_id)).size;
+  const kpi = (l, v, s) => `<div class="kpi"><span>${l}</span><b>${v}</b><small>${s}</small></div>`;
+  $('#view').innerHTML = `<div class="summary-bar">${kpi('Open Pipeline', money(sum(open)), open.length + ' open deal(s)')}${kpi('Won Revenue', money(sum(won)), won.length + ' closed won')}${kpi('Win Rate', closed ? rate + '%' : '—', closed + ' closed total')}${kpi('New Leads (7 days)', S.contacts.filter(c => Date.now() - new Date(c.created_at) < 6048e5).length, S.contacts.length + ' contacts total')}</div>
+    <div class="rp-grid">
+      <section class="settings-card"><h2>Pipeline value by stage</h2>${bars(S.stages.map(s => { const v = sum(S.deals.filter(d => d.stage_id === s.id)); return { l: s.name, v, t: money(v) }; }))}</section>
+      <section class="settings-card"><h2>Lead-to-won funnel</h2>${bars([{ l: 'Contacts', v: S.contacts.length, t: String(S.contacts.length) }, { l: 'With a deal', v: withDeals, t: String(withDeals) }, { l: 'Won', v: wonC, t: String(wonC) }])}</section>
+      <section class="settings-card"><h2>Win rate by lead source</h2>${bars(bySrc)}</section>
+      <section class="settings-card"><h2>New leads per week</h2>${bars(perWeek)}</section>
+    </div>`;
+  $('#rprint').onclick = () => print();
+}
+
+// ---------- pipeline filters, pipeline switching ----------
+const PF = { q: '', st: '', min: '' };
+function applyPF() { const q = PF.q.toLowerCase(), min = Number(PF.min) || 0; $$('#view .card').forEach(el => { el.hidden = !!((q && !el.dataset.t.includes(q)) || (PF.st && el.dataset.s !== PF.st) || Number(el.dataset.v) < min); }); }
+async function switchPipeline(id) {
+  const p = S.pipelines.find(x => x.id === id); if (!p || p.id === S.pipeline.id) return;
+  S.pipeline = p; try { localStorage.setItem('crm-pipeline', id); } catch {}
+  await load(); render();
+}
+
+// ---------- bulk actions ----------
+const SEL = new Set();
+function bulkBar() {
+  const b = $('#bulk'); if (!b) return;
+  SEL.forEach(id => { if (!contactById(id)) SEL.delete(id); });
+  const n = SEL.size, all = $('#selAll'), vis = S.vis || [];
+  if (all) { all.checked = !!vis.length && vis.every(id => SEL.has(id)); all.indeterminate = !all.checked && vis.some(id => SEL.has(id)); }
+  b.hidden = !n; if (!n) return;
+  b.innerHTML = `<b>${n} selected</b><button type="button" data-b="tag">Add tag</button><button type="button" data-b="untag">Remove tag</button><button type="button" data-b="exp">Export</button><button type="button" class="danger" data-b="del">Delete</button><button type="button" class="ghost" data-b="clr">Clear</button>`;
+  b.onclick = async e => {
+    const a = e.target.dataset.b; if (!a) return;
+    const ids = [...SEL], list = ids.map(contactById).filter(Boolean);
+    if (a === 'exp') return exportCSV(list);
+    if (a === 'tag' || a === 'untag') {
+      const t = (prompt(a === 'tag' ? 'Tag to add to the selected contacts:' : 'Tag to remove from the selected contacts:') || '').trim(); if (!t) return;
+      const res = await track(Promise.all(list.map(c => sb.from('contacts').update({ tags: a === 'tag' ? [...new Set([...(c.tags || []), t])] : (c.tags || []).filter(x => x !== t) }).eq('id', c.id).select().then(r => { if (!r.error && r.data[0]) Object.assign(c, r.data[0]); return r; }))));
+      const bad = res.find(r => r.error); toast(bad ? bad.error.message : `Tag ${a === 'tag' ? 'added to' : 'removed from'} ${list.length} contact(s)`, !bad);
+    } else if (a === 'del') {
+      const keepC = S.contacts, keepD = S.deals;
+      S.contacts = S.contacts.filter(c => !SEL.has(c.id)); S.deals = S.deals.filter(d => !SEL.has(d.contact_id));
+      if (SEL.has(S.selectedContact)) S.selectedContact = null;
+      SEL.clear(); render();
+      return undoable(`Deleted ${ids.length} contact(s) and their deals and notes.`,
+        async () => { for (let i = 0; i < ids.length; i += 100) await ok(sb.from('contacts').delete().in('id', ids.slice(i, i + 100))); },
+        () => { S.contacts = keepC; S.deals = keepD; render(); });
+    } else SEL.clear();
+    render();
+  };
+}
+
+// ---------- duplicate finder + merge ----------
+function openDupes() {
+  const groups = new Map(), add = (k, c) => { if (!groups.has(k)) groups.set(k, []); groups.get(k).push(c); };
+  S.contacts.forEach(c => { if (c.email) add('e:' + c.email.toLowerCase(), c); const p = (c.phone || '').replace(/\D/g, ''); if (p.length >= 7) add('p:' + p.slice(-9), c); });
+  const seen = new Set(), gl = [];
+  for (const [k, g] of groups) { if (g.length < 2) continue; const key = g.map(c => c.id).sort().join(); if (seen.has(key)) continue; seen.add(key); gl.push([k[0] === 'e' ? 'email' : 'phone', g]); }
+  modal(`<h2>Duplicate contacts</h2>${gl.length ? gl.map(([why, g], i) => `<fieldset class="dupe"><legend>Same ${why}</legend>${g.map((c, j) => `<label class="dupe-r"><input type="radio" name="p${i}" value="${c.id}" ${j ? '' : 'checked'}><b>${esc(cname(c))}</b><small>${esc([c.email, c.phone, c.company].filter(Boolean).join(' · '))}</small></label>`).join('')}<button type="button" class="pri" data-m="${i}">Merge into selected</button></fieldset>`).join('') : '<p class="muted">No duplicates found by email or phone.</p>'}`);
+  $$('[data-m]', $('#modal')).forEach(btn => btn.onclick = async () => {
+    const g = gl[+btn.dataset.m][1], pid = $(`input[name="p${btn.dataset.m}"]:checked`).value, p = g.find(c => c.id === pid), others = g.filter(c => c.id !== pid), oids = others.map(c => c.id);
+    if (!confirm(`Merge ${others.length} contact(s) into ${cname(p)}? Their deals and notes move to ${cname(p)}.`)) return;
+    const row = {}; for (const k of ['first_name', 'last_name', 'email', 'phone', 'company', 'source']) if (!p[k]) { const o = others.find(x => x[k]); if (o) row[k] = o[k]; }
+    row.tags = [...new Set([p, ...others].flatMap(c => c.tags || []))];
+    row.custom_fields = Object.assign({}, ...others.map(c => c.custom_fields || {}).reverse(), p.custom_fields || {});
+    try {
+      await ok(sb.from('deals').update({ contact_id: pid }).in('contact_id', oids));
+      await ok(sb.from('activities').update({ contact_id: pid }).in('contact_id', oids));
+      await ok(sb.from('contacts').delete().in('id', oids));
+      await ok(sb.from('contacts').update(row).eq('id', pid));
+    } catch { await load(); render(); return; }
+    await load(); render(); toast('Contacts merged', true); openDupes();
+  });
+}
 
 // ---------- auth (FR-1) ----------
 function show(on) { $('#login').hidden = on; $('#app').hidden = !on; if (on) requestAnimationFrame(movePill); }
@@ -147,18 +318,20 @@ async function start() {
 
 // FR-2: first run creates the default pipeline and stages once
 async function setup() {
-  let p = await ok(sb.from('pipelines').select('*').order('created_at').limit(1));
+  let p = await ok(sb.from('pipelines').select('*').order('created_at'));
   if (!p.length) {
     p = await ok(sb.from('pipelines').insert({ name: 'Sales Pipeline' }).select());
     await ok(sb.from('stages').insert(C.defaultStages.map((name, position) => ({ pipeline_id: p[0].id, name, position }))));
   }
-  S.pipeline = p[0];
+  S.pipelines = p; let sv = null; try { sv = localStorage.getItem('crm-pipeline'); } catch {}
+  S.pipeline = p.find(x => x.id === sv) || p[0];
 }
 async function load() {
   [S.contacts, S.deals, S.stages] = await Promise.all([
     fetchAll('contacts', 'created_at'), fetchAll('deals', 'created_at'),
     ok(sb.from('stages').select('*').eq('pipeline_id', S.pipeline.id).order('position'))
   ]);
+  S.deals = S.deals.filter(d => !d.pipeline_id || d.pipeline_id === S.pipeline.id);
   S.deals.sort((a, b) => a.position - b.position);
   if (S.selectedContact && !contactById(S.selectedContact)) S.selectedContact = null;
 }
@@ -170,11 +343,11 @@ function indexStagger() { ['.colw', '.card', '#rows tr'].forEach(s => $$(s, $('#
 function render(nav) {
   $$('#railNav button').forEach(b => { const on = b.dataset.v === S.view; b.classList.toggle('on', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   movePill(nav === true);
-  if (nav === true) startEnter();
-  const titles = { pipeline: 'Pipeline', contacts: 'Contacts', settings: 'Stage Settings' };
+  if (nav === true) { startEnter(); SEL.clear(); }
+  const titles = { pipeline: 'Pipeline', contacts: 'Contacts', reports: 'Reports', settings: 'Stage Settings' };
   $('#viewTitle').textContent = titles[S.view] || '';
   $('#viewActions').innerHTML = '';
-  ({ contacts: viewContacts, pipeline: viewBoard, settings: viewSettings })[S.view]();
+  ({ contacts: viewContacts, pipeline: viewBoard, reports: viewReports, settings: viewSettings })[S.view]();
   if (nav === true) indexStagger();
 }
 
@@ -204,6 +377,17 @@ document.addEventListener('keydown', e => {
 });
 
 // ---------- shared contact inspector (works in split-pane OR modal drawer) ----------
+const cfv = v => typeof v === 'string' ? v : JSON.stringify(v);
+const cfRow = (k = '', v = '') => `<div class="cf-row"><input class="cf-k" placeholder="Field" aria-label="Field name" value="${esc(k)}"><input class="cf-v" placeholder="Value" aria-label="Field value" value="${esc(v)}"><button type="button" class="ghost cf-x" aria-label="Remove field">×</button></div>`;
+function contactLinks(c) {
+  const out = [];
+  if (c.email) out.push(`<a class="btn" href="mailto:${esc(c.email)}">Email</a>`);
+  if (c.phone) {
+    let n = c.phone.replace(/\D/g, ''); if (n.startsWith('0') && /-PH$/i.test(C.locale || '')) n = '63' + n.slice(1);
+    out.push(`<a class="btn" href="tel:${esc(c.phone.replace(/[^\d+]/g, ''))}">Call</a>`, `<a class="btn" href="https://wa.me/${n}" target="_blank" rel="noopener">WhatsApp</a>`);
+  }
+  return out.length ? `<div class="row c-links">${out.join('')}</div>` : '';
+}
 function mountContactEditor(container, id, isInline) {
   const c = id ? contactById(id) : {};
   dirty = false;
@@ -214,9 +398,10 @@ function mountContactEditor(container, id, isInline) {
       <h2 style="margin:0">${id ? esc(cname(c)) : 'New contact'}</h2>
       ${id ? `<button type="button" class="ghost" id="quickDeal">+ Deal</button>` : ''}
     </div>
+    ${id ? contactLinks(c) : ''}
     <div class="grid">${f('first_name', 'First name')}${f('last_name', 'Last name')}${f('email', 'Email')}${f('phone', 'Phone')}${f('company', 'Company')}${f('source', 'Source')}</div>
     <label>Tags (comma-separated)<input id="f_tags" value="${esc((c.tags || []).join(', '))}"></label>
-    <label>Custom fields (JSON)<textarea id="f_cf" rows="2">${esc(JSON.stringify(c.custom_fields || {}))}</textarea></label>
+    <div class="cf"><span class="cf-h">Custom fields</span><div id="cfRows">${Object.entries(c.custom_fields || {}).map(([k, v]) => cfRow(k, cfv(v))).join('')}</div><button type="button" class="ghost" id="cfAdd">+ Add field</button></div>
     <div class="row" style="margin-top:12px">
       <button class="pri" id="save">Save contact</button>
       ${id ? '<button class="danger" id="del">Delete</button>' : ''}
@@ -236,8 +421,13 @@ function mountContactEditor(container, id, isInline) {
     if (!row.first_name && !row.last_name && !row.email && !row.phone) return toast('Enter at least a name, email or phone.');
     if (row.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(row.email)) return toast('That email address is not valid.');
     if (row.email && S.contacts.some(x => x.id !== id && (x.email || '').toLowerCase() === row.email.toLowerCase())) return toast('A contact with that email already exists.');
-    try { const cf = JSON.parse($('#f_cf', container).value || '{}'); if (!cf || typeof cf !== 'object' || Array.isArray(cf)) throw 0; row.custom_fields = cf; }
-    catch { return toast('Custom fields must be a JSON object, for example {"city":"Manila"}.'); }
+    const cf = {}, orig = c.custom_fields || {};
+    for (const r of $$('.cf-row', container)) {
+      const k = $('.cf-k', r).value.trim(), v = $('.cf-v', r).value.trim(); if (!k) continue;
+      if (k in cf) return toast(`Custom field "${k}" is listed twice.`);
+      cf[k] = (k in orig && typeof orig[k] !== 'string' && v === cfv(orig[k])) ? orig[k] : v;
+    }
+    row.custom_fields = cf;
     const saved = await ok(id ? sb.from('contacts').update(row).eq('id', id).select() : sb.from('contacts').insert(row).select());
     if (!saved.length) return toast('Could not save. You may not have permission.');
     dirty = false; S.selectedContact = saved[0].id;
@@ -250,17 +440,19 @@ function mountContactEditor(container, id, isInline) {
     if (isInline) { const n = $('#note', $('#contactPane')); if (n && draft) n.value = draft; }
     else { const h = $('h2', container); if (h) h.textContent = cname(saved[0]); }
   };
+  $('#cfAdd', container).onclick = () => { $('#cfRows', container).insertAdjacentHTML('beforeend', cfRow()); dirty = true; $$('.cf-k', container).pop().focus(); };
+  $('#cfRows', container).onclick = e => { const x = e.target.closest('.cf-x'); if (x) { x.parentElement.remove(); dirty = true; } };
   if (!id) return;
 
   $('#quickDeal', container).onclick = () => openDeal(null, null, id);
   $('#del', container).onclick = async () => {
-    const [d, n] = await Promise.all([cnt('deals', 'contact_id', id), cnt('activities', 'contact_id', id)]);
-    if (!confirm(`Delete ${cname(c)}? This also removes ${d} deal(s) and ${n} note(s).`)) return;
-    const gone = await ok(sb.from('contacts').delete().eq('id', id).select('id'));
-    if (!gone.length) return toast('Could not delete. You may not have permission.');
+    const keepC = S.contacts, keepD = S.deals, keepSel = S.selectedContact;
     S.contacts = S.contacts.filter(x => x.id !== id); S.deals = S.deals.filter(x => x.contact_id !== id);
     if (S.selectedContact === id) S.selectedContact = null;
-    dirty = false; closeModal(); render(); toast('Contact deleted', true);
+    dirty = false; closeModal(); render();
+    undoable(`Deleted ${cname(c)} and their deals and notes.`,
+      async () => { const gone = await ok(sb.from('contacts').delete().eq('id', id).select('id')); if (!gone.length) { toast('Could not delete. You may not have permission.'); await load(); render(); } },
+      () => { S.contacts = keepC; S.deals = keepD; S.selectedContact = keepSel; render(); });
   };
   $('#cdeals', container).innerHTML = S.deals.filter(d => d.contact_id === id).map(d =>
     `<div class="mini" data-d="${d.id}"><b>${esc(d.title)}</b> · ${money(d.value)} · ${esc(stageName(d.stage_id))} (${esc(d.status)})</div>`).join('') || '<p class="muted" style="font-size:13.5px;margin:4px 0">No deals linked yet.</p>';
@@ -305,6 +497,7 @@ function viewContacts() {
 
   $('#viewActions').innerHTML = `
     <label class="btn" style="margin:0">Import CSV<input type="file" id="imp" accept=".csv,text/csv" hidden></label>
+    <button id="dupes">Find duplicates</button>
     <button id="exp">Export CSV</button>
     <button class="pri" id="add">+ Add contact</button>`;
 
@@ -318,21 +511,24 @@ function viewContacts() {
     <div class="contacts-shell">
       <div class="contacts-main">
         <div class="bar"><input id="q" placeholder="Search name, email, phone, or company…" value="${esc(S.q)}"></div>
-        ${tags.length ? `<div class="tag-bar">
+        ${tags.length ? `<div class="tag-bar"><div id="tagPill" aria-hidden="true"></div>
           <button type="button" class="tag-pill ${!S.tag ? 'on' : ''}" data-tag="">All (${S.contacts.length})</button>
           ${tags.map(t => `<button type="button" class="tag-pill ${t === S.tag ? 'on' : ''}" data-tag="${esc(t)}">${esc(t)}</button>`).join('')}
         </div>` : ''}
-        <div class="wrap"><table><thead><tr>${[['name', 'Name'], ['email', 'Email'], ['phone', 'Phone'], ['company', 'Company']].map(([k, l]) => `<th scope="col" data-k="${k}"><button type="button" class="th-sort" data-k="${k}">${l}<span aria-hidden="true"></span></button></th>`).join('')}<th scope="col">Tags</th></tr></thead><tbody id="rows"></tbody></table></div>
+        <div id="bulk" class="bulk" hidden></div>
+        <div class="wrap"><table><thead><tr><th scope="col" class="selcol"><input type="checkbox" id="selAll" aria-label="Select all"></th>${[['name', 'Name'], ['email', 'Email'], ['phone', 'Phone'], ['company', 'Company']].map(([k, l]) => `<th scope="col" data-k="${k}"><button type="button" class="th-sort" data-k="${k}">${l}<span aria-hidden="true"></span></button></th>`).join('')}<th scope="col">Tags</th></tr></thead><tbody id="rows"></tbody></table></div>
       </div>
       <aside class="contacts-pane" id="contactPane"></aside>
     </div>`;
 
   $('#q').oninput = e => { S.q = e.target.value; S.lim = 100; rows(); };
   $$('.th-sort').forEach(b => b.onclick = () => { const k = b.dataset.k; S.sort = S.sort.k !== k ? { k, d: 1 } : S.sort.d === 1 ? { k, d: -1 } : { k: '', d: 1 }; S.lim = 100; rows(); });
-  $$('.tag-pill').forEach(b => b.onclick = () => { S.tag = b.dataset.tag; S.lim = 100; viewContacts(); });
+  $$('.tag-pill').forEach(b => b.onclick = () => { S.tag = b.dataset.tag; S.lim = 100; $$('.tag-pill').forEach(x => x.classList.toggle('on', x === b)); moveTagPill(true); rows(); });
+  tagPos = null; moveTagPill(false);
   $('#add').onclick = () => openContact(null);
   $('#imp').onchange = e => importCSV(e.target.files[0]).finally(() => e.target.value = '');
-  $('#exp').onclick = exportCSV;
+  $('#exp').onclick = exportCSV; $('#dupes').onclick = openDupes;
+  $('#selAll').onchange = e => { (S.vis || []).forEach(id => e.target.checked ? SEL.add(id) : SEL.delete(id)); $$('.rsel').forEach(x => x.checked = e.target.checked); bulkBar(); };
   rows();
 
   const pane = $('#contactPane');
@@ -361,19 +557,21 @@ function rows() {
     th.setAttribute('aria-sort', on ? (S.sort.d > 0 ? 'ascending' : 'descending') : 'none');
     $('span', th).textContent = on ? (S.sort.d > 0 ? ' ▲' : ' ▼') : '';
   });
-  const shown = list.slice(0, S.lim), left = list.length - shown.length;
-  $('#rows').innerHTML = shown.map(c => `<tr data-id="${c.id}" tabindex="0" class="${c.id === S.selectedContact ? 'selected' : ''}"><td><span class="who">${avatar(c)}<b>${esc(cname(c))}</b></span></td><td>${esc(c.email)}</td><td>${esc(c.phone)}</td><td>${esc(c.company)}</td>
+  S.vis = list.map(c => c.id); const shown = list.slice(0, S.lim), left = list.length - shown.length;
+  $('#rows').innerHTML = shown.map(c => `<tr data-id="${c.id}" tabindex="0" class="${c.id === S.selectedContact ? 'selected' : ''}"><td class="selcol"><input type="checkbox" class="rsel" aria-label="Select contact" ${SEL.has(c.id) ? 'checked' : ''}></td><td><span class="who">${avatar(c)}<b>${esc(cname(c))}</b></span></td><td>${esc(c.email)}</td><td>${esc(c.phone)}</td><td>${esc(c.company)}</td>
     <td>${(c.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</td></tr>`).join('')
-    || '<tr><td colspan="5" class="muted">No contacts match. Add one or import a CSV.</td></tr>';
+    || '<tr><td colspan="6" class="muted">No contacts match. Add one or import a CSV.</td></tr>';
   if (left > 0) {
-    $('#rows').insertAdjacentHTML('beforeend', `<tr class="more"><td colspan="5"><button type="button" id="moreRows">Show ${Math.min(100, left)} more (${left} not shown)</button></td></tr>`);
+    $('#rows').insertAdjacentHTML('beforeend', `<tr class="more"><td colspan="6"><button type="button" id="moreRows">Show ${Math.min(100, left)} more (${left} not shown)</button></td></tr>`);
     $('#moreRows').onclick = () => { S.lim += 100; rows(); };
   }
+  $$('#rows .rsel').forEach(x => { x.onclick = e => e.stopPropagation(); x.onchange = () => { const id = x.closest('tr').dataset.id; if (x.checked) SEL.add(id); else SEL.delete(id); bulkBar(); }; });
   $$('#rows tr[data-id]').forEach(r => {
     r.onclick = () => openContact(r.dataset.id);
-    r.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openContact(r.dataset.id); } };
+    r.onkeydown = e => { if (e.target !== r) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openContact(r.dataset.id); } };
   });
   if (hadFocus) { const t = $('#rows tr.selected'); if (t) t.focus(); }
+  bulkBar();
 }
 
 // ---------- pipeline board (FR-6, FR-7, FR-8) ----------
@@ -384,9 +582,10 @@ function viewBoard() {
   const openVal = openDeals.reduce((a, d) => a + Number(d.value || 0), 0);
   const wonVal = wonDeals.reduce((a, d) => a + Number(d.value || 0), 0);
   const liveTotal = S.stages.filter(s => statusFor(s.name) !== 'lost').reduce((a, s) => a + S.deals.filter(d => d.stage_id === s.id).reduce((x, d) => x + Number(d.value || 0), 0), 0);
+  const valued = openDeals.filter(d => Number(d.value) > 0), topId = valued.length > 1 ? valued.reduce((m, d) => Number(d.value) > Number(m.value) ? d : m).id : null;
   const winRate = closedCount ? Math.round((wonDeals.length / closedCount) * 100) + '%' : '—';
 
-  $('#viewActions').innerHTML = `<button class="pri" id="adddeal">+ Add deal</button>`;
+  $('#viewActions').innerHTML = `${S.pipelines.length > 1 ? `<select id="pipeSel" aria-label="Pipeline">${S.pipelines.map(p => `<option value="${p.id}" ${p.id === S.pipeline.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>` : ''}<button class="pri" id="adddeal">+ Add deal</button>`;
   $('#view').innerHTML = `
     <div class="summary-bar">
       <div class="kpi gold"><span>Active Pipeline</span><b>${money(openVal)}</b><small>${openDeals.length} open deal(s)</small></div>
@@ -394,6 +593,7 @@ function viewBoard() {
       <div class="kpi"><span>Win Rate</span><b>${winRate}</b><small>${closedCount} closed total</small></div>
       <div class="kpi"><span>Total Contacts</span><b>${S.contacts.length}</b><small>${S.stages.length} pipeline stages</small></div>
     </div>
+    <div class="pf"><input id="pfq" type="search" placeholder="Filter deals by title or contact…" aria-label="Filter deals" value="${esc(PF.q)}"><select id="pfs" aria-label="Status"><option value="">All statuses</option>${['open', 'won', 'lost'].map(x => `<option value="${x}" ${PF.st === x ? 'selected' : ''}>${x[0].toUpperCase() + x.slice(1)}</option>`).join('')}</select><input id="pfm" type="number" min="0" placeholder="Min value" aria-label="Minimum value" value="${esc(PF.min)}"></div>
     <div class="board">${S.stages.map(s => {
       const ds = S.deals.filter(d => d.stage_id === s.id);
       const st = statusFor(s.name);
@@ -401,20 +601,28 @@ function viewBoard() {
       return `<div class="colw st-${st}">
         <div class="colh"><b>${esc(s.name)} <span class="cnt-badge">${ds.length}</span></b><span class="col-val">${money(ds.reduce((a, d) => a + Number(d.value), 0))}</span></div>
         <div class="share" aria-hidden="true"><i style="--share:${share.toFixed(3)}"></i></div>
-        <div class="col" data-stage="${s.id}">${ds.map(d => `<div class="card ${esc(d.status)}" data-id="${d.id}" tabindex="0" role="button"><b>${esc(d.title)}${d.status !== 'open' ? `<span class="st-badge ${esc(d.status)}"><i></i>${d.status === 'won' ? 'Won' : 'Lost'}</span>` : ''}</b>
+        <div class="col" data-stage="${s.id}">${ds.map(d => `<div class="card ${esc(d.status)}${d.id === topId ? ' top-deal' : ''}" data-id="${d.id}" data-s="${esc(d.status)}" data-v="${Number(d.value || 0)}" data-t="${esc((d.title + ' ' + cname(contactById(d.contact_id))).toLowerCase())}" tabindex="0" role="button"><b>${esc(d.title)}${d.id === topId ? '<span class="top-badge">Top</span>' : ''}${d.status !== 'open' ? `<span class="st-badge ${esc(d.status)}"><i></i>${d.status === 'won' ? 'Won' : 'Lost'}</span>` : ''}</b>
           <div class="c-meta"><span class="muted who">${avatar(contactById(d.contact_id))}${esc(cname(contactById(d.contact_id)))}</span><span class="val">${money(d.value)}</span></div></div>`).join('')}</div>
         <button type="button" class="col-add" data-stage-add="${s.id}">+ Add deal</button>
       </div>`;
     }).join('')}</div>`;
   $('#adddeal').onclick = () => openDeal(null);
+  if ($('#pipeSel')) $('#pipeSel').onchange = e => switchPipeline(e.target.value);
+  $('#pfq').oninput = e => { PF.q = e.target.value; applyPF(); }; $('#pfs').onchange = e => { PF.st = e.target.value; applyPF(); }; $('#pfm').oninput = e => { PF.min = e.target.value; applyPF(); };
+  applyPF();
   $$('.col-add').forEach(b => b.onclick = () => openDeal(null, b.dataset.stageAdd));
   $$('.card').forEach(el => { el.onclick = () => openDeal(el.dataset.id); el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDeal(el.dataset.id); } }; });
   $$('.col').forEach(el => new Sortable(el, {
     group: 'deals', animation: 180, delay: 150, delayOnTouchOnly: true,
-    ghostClass: 'card-ghost', dragClass: 'card-drag', onEnd: onDrop
+    ghostClass: 'card-ghost', dragClass: 'card-drag',
+    onMove: evt => { $$('.colw.drop-hover').forEach(x => x.classList.remove('drop-hover')); const w = evt.to.closest('.colw'); if (w) w.classList.add('drop-hover'); },
+    onEnd: evt => { $$('.colw.drop-hover').forEach(x => x.classList.remove('drop-hover')); onDrop(evt); }
   }));
+  if (lastDroppedId) { const el = $(`.card[data-id="${lastDroppedId}"]`); lastDroppedId = null; if (el) el.classList.add('landed'); }
 }
+let lastDroppedId = null;
 async function onDrop(evt) {
+  lastDroppedId = evt.item.dataset.id;
   const ups = [];
   for (const col of new Set([evt.from, evt.to])) {
     const st = S.stages.find(s => s.id === col.dataset.stage);
@@ -456,10 +664,11 @@ function openDeal(id, defaultStageId = null, defaultContactId = null) {
     dirty = false; closeModal(); render(); toast('Deal saved', true);
   };
   if (id) $('#ddel').onclick = async () => {
-    if (!confirm('Delete this deal?')) return;
-    const gone = await ok(sb.from('deals').delete().eq('id', id).select('id'));
-    if (!gone.length) return toast('Could not delete. You may not have permission.');
-    S.deals = S.deals.filter(x => x.id !== id); dirty = false; closeModal(); render(); toast('Deal deleted', true);
+    const keep = S.deals;
+    S.deals = S.deals.filter(x => x.id !== id); dirty = false; closeModal(); render();
+    undoable('Deal deleted.',
+      async () => { const gone = await ok(sb.from('deals').delete().eq('id', id).select('id')); if (!gone.length) { toast('Could not delete. You may not have permission.'); await load(); render(); } },
+      () => { S.deals = keep; render(); });
   };
 }
 
@@ -478,6 +687,7 @@ function viewSettings() {
           const count = S.deals.filter(d => d.stage_id === s.id).length;
           const st = statusFor(s.name);
           return `<div class="stage-row">
+            <span class="grip" title="Drag to reorder" aria-hidden="true">⠿</span>
             <span class="stage-dot ${st}" aria-hidden="true"></span>
             <input value="${esc(s.name)}" aria-label="Stage name">
             <span class="stage-count">${count} deal${count === 1 ? '' : 's'}</span>
@@ -490,16 +700,25 @@ function viewSettings() {
       </div>
 
       <div class="settings-card">
+        <h2>Pipelines</h2>
+        <p class="sub">Rename pipelines or switch which one the board and stages show.</p>
+        <div id="pl">${S.pipelines.map(p => `<div class="stage-row"><input value="${esc(p.name)}" aria-label="Pipeline name">${p.id === S.pipeline.id ? '<span class="stage-count">Current</span>' : '<button type="button">Switch</button>'}</div>`).join('')}</div>
+        <div class="row" style="margin-top:16px"><input id="npn" placeholder="New pipeline name"><button class="pri" id="npl">+ Add pipeline</button></div>
+      </div>
+
+      <div class="settings-card">
         <h2>Workspace &amp; Backup</h2>
         <div class="kv-list">
           <div class="kv-row"><span>Business Name</span><b>${esc(C.businessName)}</b></div>
           <div class="kv-row"><span>Pipeline</span><b>${esc(S.pipeline.name)}</b></div>
           <div class="kv-row"><span>Contacts / Deals</span><b>${S.contacts.length} contacts · ${S.deals.length} deals</b></div>
-          <div class="kv-row"><span>Database</span><b>Supabase Postgres (RLS Active)</b></div>
+          <div class="kv-row"><span>Database</span><b><i class="rls-dot" aria-hidden="true"></i>Supabase Postgres (RLS Active)</b></div>
         </div>
         <div class="row" style="margin-top:18px">
           <button id="setExp">Export Contacts CSV</button>
           <label class="btn" style="margin:0">Import CSV<input type="file" id="setImp" accept=".csv,text/csv" hidden></label>
+          <button id="setDeals">Export Deals CSV</button>
+          <button id="setBak">Full JSON Backup</button>
         </div>
       </div>
     </div>`;
@@ -533,12 +752,32 @@ function viewSettings() {
       await load(); render();
     };
   });
+  new Sortable($('#stl'), {
+    animation: 180, handle: '.grip', ghostClass: 'card-ghost', dragClass: 'card-drag',
+    onEnd: async evt => {
+      if (evt.oldIndex === evt.newIndex) return;
+      const arr = S.stages.slice(); arr.splice(evt.newIndex, 0, arr.splice(evt.oldIndex, 1)[0]);
+      S.stages = arr.map((x, p) => ({ ...x, position: p })); viewSettings();
+      try { await ok(sb.from('stages').upsert(S.stages)); toast('Stage order saved', true); } catch { await load(); render(); }
+    }
+  });
   $('#nsb').onclick = async () => {
     const name = $('#ns').value.trim(); if (!name) return toast('Enter a stage name.');
     await ok(sb.from('stages').insert({ pipeline_id: S.pipeline.id, name, position: Math.max(-1, ...S.stages.map(s => s.position)) + 1 }));
     await load(); render();
   };
-  $('#setExp').onclick = exportCSV;
+  $('#setExp').onclick = exportCSV; $('#setDeals').onclick = exportDeals; $('#setBak').onclick = exportBackup;
+  $$('#pl .stage-row').forEach((r, i) => {
+    const p = S.pipelines[i];
+    $('input', r).onchange = async e => { const name = e.target.value.trim(); if (!name) { e.target.value = p.name; return toast('Pipeline name is required.'); } await ok(sb.from('pipelines').update({ name }).eq('id', p.id)); p.name = name; toast('Pipeline renamed', true); };
+    const b = $('button', r); if (b) b.onclick = () => switchPipeline(p.id);
+  });
+  $('#npl').onclick = async () => {
+    const name = $('#npn').value.trim(); if (!name) return toast('Enter a pipeline name.');
+    const p = await ok(sb.from('pipelines').insert({ name }).select());
+    await ok(sb.from('stages').insert(C.defaultStages.map((n, position) => ({ pipeline_id: p[0].id, name: n, position }))));
+    S.pipelines.push(p[0]); await switchPipeline(p[0].id); toast('Pipeline created', true);
+  };
   $('#setImp').onchange = e => importCSV(e.target.files[0]).finally(() => e.target.value = '');
 }
 
@@ -561,6 +800,14 @@ function parseCSV(t) {
   if (f !== '' || r.length) { r.push(f); rows.push(r); }
   return rows.filter(r => r.some(x => x.trim()));
 }
+const IMP_FIELDS = [['first_name', 'First name'], ['last_name', 'Last name'], ['name', 'Full name'], ['email', 'Email'], ['phone', 'Phone'], ['company', 'Company'], ['source', 'Source'], ['tags', 'Tags'], ['custom_fields', 'Custom fields (JSON)']];
+function mapRow(r, m) {
+  const g = f => (f in m ? (r[m[f]] || '').trim().replace(/^'(?=[=+\-@\t\r])/, '') : '');
+  let first = g('first_name'), last = g('last_name'); const nm = g('name');
+  if (!first && !last && nm) { const p = nm.split(/\s+/); first = p.shift(); last = p.join(' '); }
+  let cf = {}; try { cf = JSON.parse(g('custom_fields') || '{}'); if (!cf || typeof cf !== 'object' || Array.isArray(cf)) cf = {}; } catch { cf = {}; }
+  return { first_name: first || null, last_name: last || null, email: g('email') || null, phone: g('phone') || null, company: g('company') || null, source: g('source') || null, tags: g('tags').split(/[;,|]/).map(t => t.trim()).filter(Boolean), custom_fields: cf };
+}
 async function importCSV(file) {
   if (!file) return;
   if (file.size > 5e6) return toast('That file is over 5 MB. Split it and import in parts.');
@@ -568,37 +815,54 @@ async function importCSV(file) {
   if (rows.length < 2) return toast('That file has no data rows.');
   const map = {};
   rows[0].forEach((h, i) => { const k = h.toLowerCase().replace(/[^a-z0-9]/g, ''); for (const f in ALIAS) if (ALIAS[f].includes(k) && !(f in map)) map[f] = i; });
-  if (!('email' in map) && !('phone' in map)) return toast('No email or phone column found in the header row.');
-  const g = (r, f) => (f in map ? (r[map[f]] || '').trim().replace(/^'(?=[=+\-@\t\r])/, '') : '');
-  const seen = new Set(S.contacts.map(c => (c.email || '').toLowerCase()).filter(Boolean));
-  const seenP = new Set(S.contacts.filter(c => !c.email && c.phone).map(c => c.phone.replace(/\D/g, '')));
-  const out = []; let dup = 0, empty = 0;
-  for (const r of rows.slice(1)) {
-    let first = g(r, 'first_name'), last = g(r, 'last_name'); const nm = g(r, 'name');
-    if (!first && !last && nm) { const p = nm.split(/\s+/); first = p.shift(); last = p.join(' '); }
-    const email = g(r, 'email'), phone = g(r, 'phone');
-    if (!email && !phone) { empty++; continue; }
-    if (email && seen.has(email.toLowerCase())) { dup++; continue; }
-    if (email) seen.add(email.toLowerCase());
-    else { const dp = phone.replace(/\D/g, ''); if (seenP.has(dp)) { dup++; continue; } seenP.add(dp); }
-    let cf = {}; try { cf = JSON.parse(g(r, 'custom_fields') || '{}'); if (!cf || typeof cf !== 'object' || Array.isArray(cf)) cf = {}; } catch { cf = {}; }
-    out.push({
-      first_name: first || null, last_name: last || null, email: email || null, phone: phone || null,
-      company: g(r, 'company') || null, source: g(r, 'source') || null,
-      tags: g(r, 'tags').split(/[;,|]/).map(t => t.trim()).filter(Boolean), custom_fields: cf
-    });
+  const sel = f => `<select data-f="${f}"><option value="">— skip —</option>${rows[0].map((h, i) => `<option value="${i}" ${map[f] === i ? 'selected' : ''}>${esc(h || 'Column ' + (i + 1))}</option>`).join('')}</select>`;
+  modal(`<h2>Import ${rows.length - 1} rows</h2><p class="muted" style="font-size:13.5px">Check how each column maps. At least Email or Phone is needed.</p>
+    <div class="imp-map">${IMP_FIELDS.map(([f, l]) => `<label>${l}${sel(f)}</label>`).join('')}</div>
+    <div class="imp-prev" id="impPrev"></div>
+    <label class="chk"><input type="checkbox" id="impUpd"> Update existing contacts with the same email (blank cells never overwrite)</label>
+    <div class="row" style="margin-top:14px"><button class="pri" id="impGo">Import</button></div>`);
+  const cur = () => { const m = {}; $$('.imp-map select').forEach(s => { if (s.value !== '') m[s.dataset.f] = +s.value; }); return m; };
+  const prev = () => { const m = cur(); $('#impPrev').innerHTML = '<b>Preview</b><br>' + rows.slice(1, 4).map(r => { const c = mapRow(r, m); return esc([cname(c), c.email, c.phone, c.company].filter(Boolean).join(' · ')); }).join('<br>'); };
+  $$('.imp-map select').forEach(s => s.onchange = prev); prev();
+  $('#impGo').onclick = async () => {
+    const m = cur(); if (!('email' in m) && !('phone' in m)) return toast('Map an Email or Phone column first.');
+    const upd = $('#impUpd').checked; closeModal(); await runImport(rows.slice(1), m, upd);
+  };
+}
+async function runImport(rows, m, upd) {
+  const byEmail = new Map(S.contacts.filter(c => c.email).map(c => [c.email.toLowerCase(), c]));
+  const seenP = new Set(S.contacts.filter(c => !c.email && c.phone).map(c => c.phone.replace(/\D/g, ''))), fileSeen = new Set();
+  const out = [], ups = []; let dup = 0, empty = 0;
+  for (const r of rows) {
+    const c = mapRow(r, m);
+    if (!c.email && !c.phone) { empty++; continue; }
+    if (c.email) {
+      const em = c.email.toLowerCase(); if (fileSeen.has(em)) { dup++; continue; } fileSeen.add(em);
+      const ex = byEmail.get(em);
+      if (ex) {
+        if (!upd) { dup++; continue; }
+        const p = {}; for (const k of ['first_name', 'last_name', 'phone', 'company', 'source']) if (c[k] && c[k] !== ex[k]) p[k] = c[k];
+        const tags = [...new Set([...(ex.tags || []), ...c.tags])]; if (tags.length !== (ex.tags || []).length) p.tags = tags;
+        const cf = { ...(ex.custom_fields || {}), ...c.custom_fields }; if (JSON.stringify(cf) !== JSON.stringify(ex.custom_fields || {})) p.custom_fields = cf;
+        if (Object.keys(p).length) ups.push([ex.id, p]); continue;
+      }
+    } else { const dp = c.phone.replace(/\D/g, ''); if (seenP.has(dp)) { dup++; continue; } seenP.add(dp); }
+    out.push(c);
   }
   let done = 0;
-  try { for (let i = 0; i < out.length; i += 500) { const part = out.slice(i, i + 500); await ok(sb.from('contacts').insert(part)); done += part.length; } }
-  catch { await load(); render(); return toast(`Import stopped after ${done} of ${out.length} rows. The rest were not imported. Fix the file and import again; rows already added are skipped as duplicates.`); }
+  try {
+    for (let i = 0; i < out.length; i += 500) { const part = out.slice(i, i + 500); await ok(sb.from('contacts').insert(part)); done += part.length; }
+    for (let i = 0; i < ups.length; i += 20) await Promise.all(ups.slice(i, i + 20).map(([id, p]) => ok(sb.from('contacts').update(p).eq('id', id))));
+  } catch { await load(); render(); return toast(`Import stopped after adding ${done} of ${out.length} rows. Fix the file and import again; rows already added are skipped as duplicates.`); }
   await load(); render();
-  toast(`Imported ${out.length}. Skipped ${dup} duplicates and ${empty} empty rows.`, true);
+  toast(`Imported ${out.length}${upd ? `, updated ${ups.length}` : ''}. Skipped ${dup} duplicates and ${empty} empty rows.`, true);
 }
-function exportCSV() {
+function exportCSV(list) {
+  list = Array.isArray(list) ? list : S.contacts;
   const cols = ['first_name', 'last_name', 'email', 'phone', 'company', 'source', 'tags', 'custom_fields'];
   const q = v => { let x = String(v ?? ''); if (/^[=+\-@\t\r]/.test(x) && !/^[+-]?[\d\s().-]+$/.test(x)) x = "'" + x; return '"' + x.replace(/"/g, '""') + '"'; }; // stops spreadsheet formula injection
   const val = (c, k) => k === 'tags' ? (c.tags || []).join(';') : k === 'custom_fields' ? JSON.stringify(c.custom_fields || {}) : c[k];
-  const lines = [cols.join(',')].concat(S.contacts.map(c => cols.map(k => q(val(c, k))).join(',')));
+  const lines = [cols.join(',')].concat(list.map(c => cols.map(k => q(val(c, k))).join(',')));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv' }));
   a.download = 'contacts-' + new Date().toISOString().slice(0, 10) + '.csv'; a.click();
