@@ -6,7 +6,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = n => '$' + Number(n || 0).toLocaleString();
-const S = { contacts: [], stages: [], deals: [], pipeline: null, view: 'pipeline', q: '', tag: '' };
+const S = { contacts: [], stages: [], deals: [], pipeline: null, view: 'pipeline', q: '', tag: '', selectedContact: null };
 
 // Apply client branding from config.js
 document.title = C.businessName;
@@ -74,6 +74,7 @@ const cname = c => c ? ([c.first_name, c.last_name].filter(Boolean).join(' ') ||
 const contactById = id => S.contacts.find(c => c.id === id);
 const stageName = id => (S.stages.find(s => s.id === id) || {}).name || '';
 const statusFor = n => { n = (n || '').trim().toLowerCase(); return n === 'won' || n === 'lost' ? n : 'open'; };
+const isDesktopSplit = () => window.innerWidth > 1060;
 
 // ---------- auth (FR-1) ----------
 function show(on) { $('#login').hidden = on; $('#app').hidden = !on; if (on) requestAnimationFrame(movePill); }
@@ -104,6 +105,7 @@ async function load() {
     ok(sb.from('stages').select('*').eq('pipeline_id', S.pipeline.id).order('position'))
   ]);
   S.deals.sort((a, b) => a.position - b.position);
+  if (S.selectedContact && !contactById(S.selectedContact)) S.selectedContact = null;
 }
 
 $$('#railNav button').forEach(b => b.onclick = () => { S.view = b.dataset.v; render(); });
@@ -125,106 +127,174 @@ function modal(html, cls = '') {
 function closeModal() { $('#modal').hidden = true; $('#modal').innerHTML = ''; }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
-// ---------- contacts (FR-3, FR-4) ----------
+// ---------- shared contact inspector (works in split-pane OR modal drawer) ----------
+function mountContactEditor(container, id, isInline) {
+  const c = id ? contactById(id) : {};
+  const f = (k, label) => `<label>${label}<input id="f_${k}" value="${esc(c[k])}"></label>`;
+  container.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
+      <h2 style="margin:0">${id ? esc(cname(c)) : 'New contact'}</h2>
+      ${id ? `<button type="button" class="ghost" id="quickDeal">+ Deal</button>` : ''}
+    </div>
+    <div class="grid">${f('first_name', 'First name')}${f('last_name', 'Last name')}${f('email', 'Email')}${f('phone', 'Phone')}${f('company', 'Company')}${f('source', 'Source')}</div>
+    <label>Tags (comma-separated)<input id="f_tags" value="${esc((c.tags || []).join(', '))}"></label>
+    <label>Custom fields (JSON)<textarea id="f_cf" rows="2">${esc(JSON.stringify(c.custom_fields || {}))}</textarea></label>
+    <div class="row" style="margin-top:12px">
+      <button class="pri" id="save">Save contact</button>
+      ${id ? '<button class="danger" id="del">Delete</button>' : ''}
+    </div>
+    ${id ? `<h3>Deals</h3><div id="cdeals"></div><h3>Notes timeline</h3>
+      <textarea id="note" rows="2" placeholder="Write a note…"></textarea>
+      <div class="row" style="margin-top:8px"><button id="addnote">Add note</button></div>
+      <div id="notes"></div>` : ''}`;
+
+  $('#save', container).onclick = async () => {
+    const v = k => $('#f_' + k, container).value.trim() || null;
+    const row = {
+      first_name: v('first_name'), last_name: v('last_name'), email: v('email'), phone: v('phone'),
+      company: v('company'), source: v('source'),
+      tags: $('#f_tags', container).value.split(',').map(t => t.trim()).filter(Boolean)
+    };
+    if (!row.first_name && !row.last_name && !row.email && !row.phone) return toast('Enter at least a name, email or phone.');
+    if (row.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(row.email)) return toast('That email address is not valid.');
+    try { row.custom_fields = JSON.parse($('#f_cf', container).value || '{}'); } catch { return toast('Custom fields must be valid JSON.'); }
+    const saved = await ok(id ? sb.from('contacts').update(row).eq('id', id).select() : sb.from('contacts').insert(row).select());
+    S.selectedContact = saved[0].id;
+    await load();
+    if (!isInline) closeModal();
+    render();
+    toast('Contact saved', true);
+    if (!isInline) openContact(saved[0].id);
+  };
+  if (!id) return;
+
+  $('#quickDeal', container).onclick = () => openDeal(null, null, id);
+  $('#del', container).onclick = async () => {
+    const [d, n] = await Promise.all([cnt('deals', 'contact_id', id), cnt('activities', 'contact_id', id)]);
+    if (!confirm(`Delete ${cname(c)}? This also removes ${d} deal(s) and ${n} note(s).`)) return;
+    await ok(sb.from('contacts').delete().eq('id', id));
+    if (S.selectedContact === id) S.selectedContact = null;
+    closeModal(); await load(); render(); toast('Contact deleted', true);
+  };
+  $('#cdeals', container).innerHTML = S.deals.filter(d => d.contact_id === id).map(d =>
+    `<div class="mini" data-d="${d.id}"><b>${esc(d.title)}</b> · ${money(d.value)} · ${esc(stageName(d.stage_id))} (${d.status})</div>`).join('') || '<p class="muted" style="font-size:13.5px;margin:4px 0">No deals linked yet.</p>';
+  $$('#cdeals .mini', container).forEach(el => el.onclick = () => openDeal(el.dataset.d));
+  $('#addnote', container).onclick = async () => {
+    const body = $('#note', container).value.trim(); if (!body) return toast('Write something first.');
+    await ok(sb.from('activities').insert({ contact_id: id, type: 'note', body }));
+    $('#note', container).value = '';
+    loadNotes(id, container);
+  };
+  loadNotes(id, container);
+}
+
+async function loadNotes(id, root = document) {
+  const n = await ok(sb.from('activities').select('*').eq('contact_id', id).order('created_at', { ascending: false }));
+  const el = $('#notes', root); if (!el) return;
+  el.innerHTML = n.map(a => `<div class="note"><small>${new Date(a.created_at).toLocaleString()}</small><p>${esc(a.body)}</p></div>`).join('') || '<p class="muted" style="font-size:13.5px">No notes yet.</p>';
+}
+
+function openContact(id) {
+  if (S.view === 'contacts' && isDesktopSplit() && id) {
+    S.selectedContact = id;
+    rows();
+    const pane = $('#contactPane');
+    if (pane) return mountContactEditor(pane, id, true);
+  }
+  modal('<div id="modalContactMount"></div>', 'side');
+  mountContactEditor($('#modalContactMount'), id, false);
+}
+
+// ---------- contacts (FR-3, FR-4, FR-5) ----------
 function viewContacts() {
   const tags = [...new Set(S.contacts.flatMap(c => c.tags || []))].sort();
+  const withDeals = new Set(S.deals.map(d => d.contact_id)).size;
+  const sources = new Set(S.contacts.map(c => c.source).filter(Boolean)).size;
+  if (!S.selectedContact && S.contacts.length && isDesktopSplit()) S.selectedContact = S.contacts[0].id;
+
   $('#viewActions').innerHTML = `
     <label class="btn" style="margin:0">Import CSV<input type="file" id="imp" accept=".csv,text/csv" hidden></label>
     <button id="exp">Export CSV</button>
     <button class="pri" id="add">+ Add contact</button>`;
+
   $('#view').innerHTML = `
-    <div class="bar"><input id="q" placeholder="Search name, email, phone, or company…" value="${esc(S.q)}"></div>
-    ${tags.length ? `<div class="tag-bar">
-      <button type="button" class="tag-pill ${!S.tag ? 'on' : ''}" data-tag="">All (${S.contacts.length})</button>
-      ${tags.map(t => `<button type="button" class="tag-pill ${t === S.tag ? 'on' : ''}" data-tag="${esc(t)}">${esc(t)}</button>`).join('')}
-    </div>` : ''}
-    <div class="wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Company</th><th>Tags</th></tr></thead><tbody id="rows"></tbody></table></div>`;
+    <div class="summary-bar">
+      <div class="kpi gold"><span>Total Contacts</span><b>${S.contacts.length}</b><small>Stored in Supabase</small></div>
+      <div class="kpi won"><span>With Active/Past Deals</span><b>${withDeals}</b><small>${S.contacts.length ? Math.round((withDeals / S.contacts.length) * 100) : 0}% of database</small></div>
+      <div class="kpi"><span>Unique Tags</span><b>${tags.length}</b><small>Click below to filter</small></div>
+      <div class="kpi"><span>Lead Sources</span><b>${sources}</b><small>Tracked channels</small></div>
+    </div>
+    <div class="contacts-shell">
+      <div class="contacts-main">
+        <div class="bar"><input id="q" placeholder="Search name, email, phone, or company…" value="${esc(S.q)}"></div>
+        ${tags.length ? `<div class="tag-bar">
+          <button type="button" class="tag-pill ${!S.tag ? 'on' : ''}" data-tag="">All (${S.contacts.length})</button>
+          ${tags.map(t => `<button type="button" class="tag-pill ${t === S.tag ? 'on' : ''}" data-tag="${esc(t)}">${esc(t)}</button>`).join('')}
+        </div>` : ''}
+        <div class="wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Company</th><th>Tags</th></tr></thead><tbody id="rows"></tbody></table></div>
+      </div>
+      <aside class="contacts-pane" id="contactPane"></aside>
+    </div>`;
+
   $('#q').oninput = e => { S.q = e.target.value; rows(); };
   $$('.tag-pill').forEach(b => b.onclick = () => { S.tag = b.dataset.tag; viewContacts(); });
   $('#add').onclick = () => openContact(null);
   $('#imp').onchange = e => importCSV(e.target.files[0]).finally(() => e.target.value = '');
   $('#exp').onclick = exportCSV;
   rows();
+
+  const pane = $('#contactPane');
+  if (S.selectedContact && contactById(S.selectedContact)) {
+    mountContactEditor(pane, S.selectedContact, true);
+  } else {
+    pane.innerHTML = `<div class="pane-empty">
+      <div class="icon-circle"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+      <h3>Select a contact</h3>
+      <p>Click any row on the left to inspect their details, linked deals, and notes timeline here.</p>
+      <button class="pri" id="paneAdd">+ Add your first contact</button>
+    </div>`;
+    $('#paneAdd', pane).onclick = () => openContact(null);
+  }
 }
 function rows() {
   const q = S.q.toLowerCase();
   const list = S.contacts.filter(c => (!S.tag || (c.tags || []).includes(S.tag)) &&
     (!q || [cname(c), c.email, c.phone, c.company].some(v => (v || '').toLowerCase().includes(q))));
-  $('#rows').innerHTML = list.map(c => `<tr data-id="${c.id}"><td><b>${esc(cname(c))}</b></td><td>${esc(c.email)}</td><td>${esc(c.phone)}</td><td>${esc(c.company)}</td>
+  $('#rows').innerHTML = list.map(c => `<tr data-id="${c.id}" class="${c.id === S.selectedContact ? 'selected' : ''}"><td><b>${esc(cname(c))}</b></td><td>${esc(c.email)}</td><td>${esc(c.phone)}</td><td>${esc(c.company)}</td>
     <td>${(c.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</td></tr>`).join('')
-    || '<tr><td colspan="5" class="muted">No contacts yet. Add one or import a CSV.</td></tr>';
+    || '<tr><td colspan="5" class="muted">No contacts match. Add one or import a CSV.</td></tr>';
   $$('#rows tr[data-id]').forEach(r => r.onclick = () => openContact(r.dataset.id));
-}
-
-// Contact slide-over detail panel (FR-5)
-function openContact(id) {
-  const c = id ? contactById(id) : {};
-  const f = (k, label) => `<label>${label}<input id="f_${k}" value="${esc(c[k])}"></label>`;
-  modal(`<h2>${id ? esc(cname(c)) : 'New contact'}</h2>
-    <div class="grid">${f('first_name', 'First name')}${f('last_name', 'Last name')}${f('email', 'Email')}${f('phone', 'Phone')}${f('company', 'Company')}${f('source', 'Source')}</div>
-    <label>Tags (comma-separated)<input id="f_tags" value="${esc((c.tags || []).join(', '))}"></label>
-    <label>Custom fields (JSON)<textarea id="f_cf" rows="2">${esc(JSON.stringify(c.custom_fields || {}))}</textarea></label>
-    <div class="row" style="margin-top:12px"><button class="pri" id="save">Save contact</button>${id ? '<button class="danger" id="del">Delete contact</button>' : ''}</div>
-    ${id ? `<h3>Deals</h3><div id="cdeals"></div><h3>Notes timeline</h3>
-      <textarea id="note" rows="2" placeholder="Write a note…"></textarea><div class="row" style="margin-top:8px"><button id="addnote">Add note</button></div><div id="notes"></div>` : ''}`, 'side');
-
-  $('#save').onclick = async () => {
-    const v = k => $('#f_' + k).value.trim() || null;
-    const row = {
-      first_name: v('first_name'), last_name: v('last_name'), email: v('email'), phone: v('phone'),
-      company: v('company'), source: v('source'),
-      tags: $('#f_tags').value.split(',').map(t => t.trim()).filter(Boolean)
-    };
-    if (!row.first_name && !row.last_name && !row.email && !row.phone) return toast('Enter at least a name, email or phone.');
-    if (row.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(row.email)) return toast('That email address is not valid.');
-    try { row.custom_fields = JSON.parse($('#f_cf').value || '{}'); } catch { return toast('Custom fields must be valid JSON.'); }
-    const saved = await ok(id ? sb.from('contacts').update(row).eq('id', id).select() : sb.from('contacts').insert(row).select());
-    await load(); render(); toast('Contact saved', true); openContact(saved[0].id);
-  };
-  if (!id) return;
-  $('#del').onclick = async () => {
-    const [d, n] = await Promise.all([cnt('deals', 'contact_id', id), cnt('activities', 'contact_id', id)]);
-    if (!confirm(`Delete ${cname(c)}? This also removes ${d} deal(s) and ${n} note(s).`)) return;
-    await ok(sb.from('contacts').delete().eq('id', id)); closeModal(); await load(); render(); toast('Contact deleted', true);
-  };
-  $('#cdeals').innerHTML = S.deals.filter(d => d.contact_id === id).map(d =>
-    `<div class="mini" data-d="${d.id}"><b>${esc(d.title)}</b> · ${money(d.value)} · ${esc(stageName(d.stage_id))} (${d.status})</div>`).join('') || '<p class="muted">No deals yet.</p>';
-  $$('#cdeals .mini').forEach(el => el.onclick = () => openDeal(el.dataset.d));
-  $('#addnote').onclick = async () => {
-    const body = $('#note').value.trim(); if (!body) return toast('Write something first.');
-    await ok(sb.from('activities').insert({ contact_id: id, type: 'note', body })); $('#note').value = ''; loadNotes(id);
-  };
-  loadNotes(id);
-}
-async function loadNotes(id) {
-  const n = await ok(sb.from('activities').select('*').eq('contact_id', id).order('created_at', { ascending: false }));
-  const el = $('#notes'); if (!el) return;
-  el.innerHTML = n.map(a => `<div class="note"><small>${new Date(a.created_at).toLocaleString()}</small><p>${esc(a.body)}</p></div>`).join('') || '<p class="muted">No notes yet.</p>';
 }
 
 // ---------- pipeline board (FR-6, FR-7, FR-8) ----------
 function viewBoard() {
   const openDeals = S.deals.filter(d => d.status === 'open');
   const wonDeals = S.deals.filter(d => d.status === 'won');
+  const closedCount = wonDeals.length + S.deals.filter(d => d.status === 'lost').length;
   const openVal = openDeals.reduce((a, d) => a + Number(d.value || 0), 0);
   const wonVal = wonDeals.reduce((a, d) => a + Number(d.value || 0), 0);
+  const winRate = closedCount ? Math.round((wonDeals.length / closedCount) * 100) + '%' : '—';
 
   $('#viewActions').innerHTML = `<button class="pri" id="adddeal">+ Add deal</button>`;
   $('#view').innerHTML = `
     <div class="summary-bar">
-      <div class="kpi gold"><span>Active Pipeline</span><b>${money(openVal)}</b></div>
-      <div class="kpi won"><span>Won Revenue</span><b>${money(wonVal)}</b></div>
-      <div class="kpi"><span>Open Deals</span><b>${openDeals.length}</b></div>
-      <div class="kpi"><span>Total Contacts</span><b>${S.contacts.length}</b></div>
+      <div class="kpi gold"><span>Active Pipeline</span><b>${money(openVal)}</b><small>${openDeals.length} open deal(s)</small></div>
+      <div class="kpi won"><span>Won Revenue</span><b>${money(wonVal)}</b><small>${wonDeals.length} closed won</small></div>
+      <div class="kpi"><span>Win Rate</span><b>${winRate}</b><small>${closedCount} closed total</small></div>
+      <div class="kpi"><span>Total Contacts</span><b>${S.contacts.length}</b><small>${S.stages.length} pipeline stages</small></div>
     </div>
     <div class="board">${S.stages.map(s => {
       const ds = S.deals.filter(d => d.stage_id === s.id);
       const st = statusFor(s.name);
-      return `<div class="colw st-${st}"><div class="colh"><b>${esc(s.name)}</b><span>${ds.length} · ${money(ds.reduce((a, d) => a + Number(d.value), 0))}</span></div>
+      return `<div class="colw st-${st}">
+        <div class="colh"><b>${esc(s.name)} <span class="cnt-badge">${ds.length}</span></b><span class="col-val">${money(ds.reduce((a, d) => a + Number(d.value), 0))}</span></div>
         <div class="col" data-stage="${s.id}">${ds.map(d => `<div class="card ${d.status}" data-id="${d.id}"><b>${esc(d.title)}</b>
-        <div class="c-meta"><span class="muted">${esc(cname(contactById(d.contact_id)))}</span><span class="val">${money(d.value)}</span></div></div>`).join('')}</div></div>`;
+          <div class="c-meta"><span class="muted">${esc(cname(contactById(d.contact_id)))}</span><span class="val">${money(d.value)}</span></div></div>`).join('')}</div>
+        <button type="button" class="col-add" data-stage-add="${s.id}">+ Add deal</button>
+      </div>`;
     }).join('')}</div>`;
   $('#adddeal').onclick = () => openDeal(null);
+  $$('.col-add').forEach(b => b.onclick = () => openDeal(null, b.dataset.stageAdd));
   $$('.card').forEach(el => el.onclick = () => openDeal(el.dataset.id));
   $$('.col').forEach(el => new Sortable(el, {
     group: 'deals', animation: 180, delay: 150, delayOnTouchOnly: true,
@@ -247,13 +317,14 @@ async function onDrop(evt) {
   if (failed) { toast(failed.error.message); await load(); }
   S.deals.sort((a, b) => a.position - b.position); viewBoard();
 }
-function openDeal(id) {
+function openDeal(id, defaultStageId = null, defaultContactId = null) {
   if (!S.contacts.length) return toast('Add a contact first, then create a deal for them.');
-  const d = id ? S.deals.find(x => x.id === id) : { stage_id: (S.stages[0] || {}).id, status: 'open', value: 0 };
+  const initialStage = defaultStageId || (S.stages[0] || {}).id;
+  const d = id ? S.deals.find(x => x.id === id) : { contact_id: defaultContactId || S.contacts[0].id, stage_id: initialStage, status: statusFor(stageName(initialStage)), value: 0 };
   const opt = (arr, sel) => arr.map(([v, l]) => `<option value="${v}" ${v === sel ? 'selected' : ''}>${esc(l)}</option>`).join('');
   modal(`<h2>${id ? 'Edit deal' : 'New deal'}</h2>
     <label>Contact<select id="d_c">${opt(S.contacts.map(c => [c.id, cname(c)]), d.contact_id)}</select></label>
-    <label>Title<input id="d_t" value="${esc(d.title)}"></label>
+    <label>Title<input id="d_t" placeholder="e.g. Monthly Retainer" value="${esc(d.title)}"></label>
     <label>Value ($)<input id="d_v" type="number" min="0" step="any" value="${d.value}"></label>
     <label>Stage<select id="d_s">${opt(S.stages.map(s => [s.id, s.name]), d.stage_id)}</select></label>
     <label>Status<select id="d_st">${opt(['open', 'won', 'lost'].map(x => [x, x]), d.status)}</select></label>
@@ -275,16 +346,53 @@ function openDeal(id) {
 
 // ---------- stage settings (FR-9) ----------
 function viewSettings() {
-  $('#view').innerHTML = `<div class="settings-card"><h2>Pipeline stages</h2><div id="stl">${S.stages.map((s, i) => `<div class="row"><input value="${esc(s.name)}">
-    <button data-a="up" ${i ? '' : 'disabled'}>Up</button><button data-a="dn" ${i < S.stages.length - 1 ? '' : 'disabled'}>Down</button>
-    <button class="danger" data-a="del">Delete</button></div>`).join('')}</div>
-    <div class="row" style="margin-top:16px"><input id="ns" placeholder="New stage name"><button class="pri" id="nsb">Add stage</button></div></div>`;
-  $$('#stl .row').forEach((r, i) => {
+  $('#view').innerHTML = `
+    <div class="settings-grid">
+      <div class="settings-card">
+        <h2>Pipeline stages</h2>
+        <p class="sub">Rename, reorder, or add columns. Stages named “Won” or “Lost” automatically update deal status.</p>
+        <div id="stl">${S.stages.map((s, i) => {
+          const count = S.deals.filter(d => d.stage_id === s.id).length;
+          const st = statusFor(s.name);
+          return `<div class="stage-row">
+            <span class="stage-dot ${st}" aria-hidden="true"></span>
+            <input value="${esc(s.name)}" aria-label="Stage name">
+            <span class="stage-count">${count} deal${count === 1 ? '' : 's'}</span>
+            <button data-a="up" ${i ? '' : 'disabled'}>Up</button>
+            <button data-a="dn" ${i < S.stages.length - 1 ? '' : 'disabled'}>Down</button>
+            <button class="danger" data-a="del">Delete</button>
+          </div>`;
+        }).join('')}</div>
+        <div class="row" style="margin-top:16px"><input id="ns" placeholder="New stage name"><button class="pri" id="nsb">+ Add stage</button></div>
+      </div>
+
+      <div class="settings-card">
+        <h2>Live stage flow</h2>
+        <p class="sub">Current left-to-right order on your board.</p>
+        <div class="flow-preview">
+          ${S.stages.map(s => `<span class="flow-chip"><span class="stage-dot ${statusFor(s.name)}"></span>${esc(s.name)}</span>`).join('')}
+        </div>
+        <h3>Workspace &amp; Backup</h3>
+        <div class="kv-list">
+          <div class="kv-row"><span>Business Name</span><b>${esc(C.businessName)}</b></div>
+          <div class="kv-row"><span>Pipeline</span><b>${esc(S.pipeline.name)}</b></div>
+          <div class="kv-row"><span>Contacts / Deals</span><b>${S.contacts.length} contacts · ${S.deals.length} deals</b></div>
+          <div class="kv-row"><span>Database</span><b>Supabase Postgres (RLS Active)</b></div>
+        </div>
+        <div class="row" style="margin-top:18px">
+          <button id="setExp">Export Contacts CSV</button>
+          <label class="btn" style="margin:0">Import CSV<input type="file" id="setImp" accept=".csv,text/csv" hidden></label>
+        </div>
+      </div>
+    </div>`;
+
+  $$('#stl .stage-row').forEach((r, i) => {
     const s = S.stages[i];
     r.querySelector('input').onchange = async e => {
       const name = e.target.value.trim();
       if (!name) { e.target.value = s.name; return toast('Stage name is required.'); }
-      await ok(sb.from('stages').update({ name }).eq('id', s.id)); s.name = name; toast('Stage renamed', true);
+      await ok(sb.from('stages').update({ name }).eq('id', s.id));
+      s.name = name; toast('Stage renamed', true); viewSettings();
     };
     r.onclick = async e => {
       const a = e.target.dataset.a; if (!a) return;
@@ -306,6 +414,8 @@ function viewSettings() {
     await ok(sb.from('stages').insert({ pipeline_id: S.pipeline.id, name, position: Math.max(-1, ...S.stages.map(s => s.position)) + 1 }));
     await load(); render();
   };
+  $('#setExp').onclick = exportCSV;
+  $('#setImp').onchange = e => importCSV(e.target.files[0]).finally(() => e.target.value = '');
 }
 
 // ---------- CSV (FR-10, FR-11) ----------
