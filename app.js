@@ -4,14 +4,53 @@ const C = window.CRM_CONFIG;
 const sb = supabase.createClient(C.supabaseUrl, C.supabaseAnonKey);
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-// Escape user text before putting it into innerHTML
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = n => '$' + Number(n || 0).toLocaleString();
-const S = { contacts: [], stages: [], deals: [], pipeline: null, view: 'contacts', q: '', tag: '' };
+const S = { contacts: [], stages: [], deals: [], pipeline: null, view: 'pipeline', q: '', tag: '' };
 
+// Apply client branding from config.js
 document.title = C.businessName;
-document.documentElement.style.setProperty('--accent', C.accent);
-$('#brand').textContent = $('#loginBrand').textContent = C.businessName;
+document.documentElement.style.setProperty('--brand', C.accent);
+$('#brand').textContent = $('#loginBrand').textContent = $('#loginBrandSide').textContent = C.businessName;
+$('#brandMark').textContent = C.businessName.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+
+// ---------- circular theme toggle (View Transitions API) ----------
+function setThemeIcon(t) {
+  $('#themeIcon').innerHTML = t === 'dark'
+    ? '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>'
+    : '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+}
+setThemeIcon(document.documentElement.getAttribute('data-theme'));
+$('#themeBtn').onclick = e => {
+  const r = document.documentElement;
+  const next = r.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  const apply = () => {
+    r.setAttribute('data-theme', next);
+    setThemeIcon(next);
+    try { localStorage.setItem('crm-theme', next); } catch {}
+  };
+  if (!document.startViewTransition || matchMedia('(prefers-reduced-motion:reduce)').matches) return apply();
+  const rect = e.currentTarget.getBoundingClientRect();
+  const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+  const end = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+  const vt = document.startViewTransition(apply);
+  vt.ready.then(() => {
+    document.documentElement.animate(
+      { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${end}px at ${x}px ${y}px)`] },
+      { duration: 480, easing: 'cubic-bezier(.22,1,.36,1)', pseudoElement: '::view-transition-new(root)' }
+    );
+  });
+};
+
+// ---------- offset-safe rail pill ----------
+function movePill() {
+  const active = $('#railNav button.on'), pill = $('#railPill');
+  if (!active || !pill) return;
+  pill.style.width = active.offsetWidth + 'px';
+  pill.style.height = active.offsetHeight + 'px';
+  pill.style.transform = `translate(${active.offsetLeft}px, ${active.offsetTop}px)`;
+}
+window.addEventListener('resize', movePill);
 
 // ---------- helpers ----------
 let tt;
@@ -19,13 +58,11 @@ function toast(msg, good) { // FR-12: every failure is visible
   const t = $('#toast'); t.textContent = msg; t.className = 'show' + (good ? ' good' : '');
   clearTimeout(tt); tt = setTimeout(() => t.className = '', 5000);
 }
-// Await a Supabase call; on error show a toast and throw so nothing fails silently
 async function ok(p) { const { data, error } = await p; if (error) { toast(error.message); throw error; } return data; }
 async function cnt(table, col, id) {
   const { count, error } = await sb.from(table).select('id', { count: 'exact', head: true }).eq(col, id);
   if (error) { toast(error.message); throw error; } return count;
 }
-// PostgREST returns at most 1000 rows per request, so page through
 async function fetchAll(table, order) {
   let out = [], from = 0;
   for (;;) {
@@ -36,11 +73,10 @@ async function fetchAll(table, order) {
 const cname = c => c ? ([c.first_name, c.last_name].filter(Boolean).join(' ') || c.email || c.phone || 'Unnamed') : 'Unknown';
 const contactById = id => S.contacts.find(c => c.id === id);
 const stageName = id => (S.stages.find(s => s.id === id) || {}).name || '';
-// FR-8: stage named Won/Lost sets the status; anything else is open
 const statusFor = n => { n = (n || '').trim().toLowerCase(); return n === 'won' || n === 'lost' ? n : 'open'; };
 
 // ---------- auth (FR-1) ----------
-function show(on) { $('#login').hidden = on; $('#app').hidden = !on; }
+function show(on) { $('#login').hidden = on; $('#app').hidden = !on; if (on) requestAnimationFrame(movePill); }
 $('#loginForm').onsubmit = async e => {
   e.preventDefault(); const b = $('#loginBtn'); b.disabled = true;
   const { error } = await sb.auth.signInWithPassword({ email: $('#email').value.trim(), password: $('#password').value });
@@ -65,17 +101,22 @@ async function setup() {
 async function load() {
   [S.contacts, S.deals, S.stages] = await Promise.all([
     fetchAll('contacts', 'created_at'), fetchAll('deals', 'created_at'),
-    ok(sb.from('stages').select('*').eq('pipeline_id', S.pipeline.id).order('position'))]);
+    ok(sb.from('stages').select('*').eq('pipeline_id', S.pipeline.id).order('position'))
+  ]);
   S.deals.sort((a, b) => a.position - b.position);
 }
 
-$$('nav button').forEach(b => b.onclick = () => { S.view = b.dataset.v; render(); });
+$$('#railNav button').forEach(b => b.onclick = () => { S.view = b.dataset.v; render(); });
 function render() {
-  $$('nav button').forEach(b => b.classList.toggle('on', b.dataset.v === S.view));
+  $$('#railNav button').forEach(b => b.classList.toggle('on', b.dataset.v === S.view));
+  movePill();
+  const titles = { pipeline: 'Pipeline', contacts: 'Contacts', settings: 'Stage Settings' };
+  $('#viewTitle').textContent = titles[S.view] || '';
+  $('#viewActions').innerHTML = '';
   ({ contacts: viewContacts, pipeline: viewBoard, settings: viewSettings })[S.view]();
 }
 
-// ---------- modal ----------
+// ---------- modal & slide-over drawer ----------
 function modal(html, cls = '') {
   const m = $('#modal');
   m.innerHTML = `<div class="box ${cls}"><button class="x" id="mx" aria-label="Close">×</button>${html}</div>`;
@@ -87,30 +128,35 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 // ---------- contacts (FR-3, FR-4) ----------
 function viewContacts() {
   const tags = [...new Set(S.contacts.flatMap(c => c.tags || []))].sort();
-  $('#view').innerHTML = `<div class="bar"><input id="q" placeholder="Search name, email, phone, company" value="${esc(S.q)}">
-    <select id="tag"><option value="">All tags</option>${tags.map(t => `<option ${t === S.tag ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>
-    <button class="pri" id="add">Add contact</button>
+  $('#viewActions').innerHTML = `
     <label class="btn" style="margin:0">Import CSV<input type="file" id="imp" accept=".csv,text/csv" hidden></label>
-    <button id="exp">Export CSV</button></div>
+    <button id="exp">Export CSV</button>
+    <button class="pri" id="add">+ Add contact</button>`;
+  $('#view').innerHTML = `
+    <div class="bar"><input id="q" placeholder="Search name, email, phone, or company…" value="${esc(S.q)}"></div>
+    ${tags.length ? `<div class="tag-bar">
+      <button type="button" class="tag-pill ${!S.tag ? 'on' : ''}" data-tag="">All (${S.contacts.length})</button>
+      ${tags.map(t => `<button type="button" class="tag-pill ${t === S.tag ? 'on' : ''}" data-tag="${esc(t)}">${esc(t)}</button>`).join('')}
+    </div>` : ''}
     <div class="wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Company</th><th>Tags</th></tr></thead><tbody id="rows"></tbody></table></div>`;
   $('#q').oninput = e => { S.q = e.target.value; rows(); };
-  $('#tag').onchange = e => { S.tag = e.target.value; rows(); };
+  $$('.tag-pill').forEach(b => b.onclick = () => { S.tag = b.dataset.tag; viewContacts(); });
   $('#add').onclick = () => openContact(null);
   $('#imp').onchange = e => importCSV(e.target.files[0]).finally(() => e.target.value = '');
   $('#exp').onclick = exportCSV;
   rows();
 }
-function rows() { // filtered in the browser (fine up to a few thousand contacts)
+function rows() {
   const q = S.q.toLowerCase();
   const list = S.contacts.filter(c => (!S.tag || (c.tags || []).includes(S.tag)) &&
     (!q || [cname(c), c.email, c.phone, c.company].some(v => (v || '').toLowerCase().includes(q))));
-  $('#rows').innerHTML = list.map(c => `<tr data-id="${c.id}"><td>${esc(cname(c))}</td><td>${esc(c.email)}</td><td>${esc(c.phone)}</td><td>${esc(c.company)}</td>
+  $('#rows').innerHTML = list.map(c => `<tr data-id="${c.id}"><td><b>${esc(cname(c))}</b></td><td>${esc(c.email)}</td><td>${esc(c.phone)}</td><td>${esc(c.company)}</td>
     <td>${(c.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</td></tr>`).join('')
     || '<tr><td colspan="5" class="muted">No contacts yet. Add one or import a CSV.</td></tr>';
   $$('#rows tr[data-id]').forEach(r => r.onclick = () => openContact(r.dataset.id));
 }
 
-// Contact detail panel (FR-5): fields, deals, notes timeline. id = null for a new contact.
+// Contact slide-over detail panel (FR-5)
 function openContact(id) {
   const c = id ? contactById(id) : {};
   const f = (k, label) => `<label>${label}<input id="f_${k}" value="${esc(c[k])}"></label>`;
@@ -118,18 +164,20 @@ function openContact(id) {
     <div class="grid">${f('first_name', 'First name')}${f('last_name', 'Last name')}${f('email', 'Email')}${f('phone', 'Phone')}${f('company', 'Company')}${f('source', 'Source')}</div>
     <label>Tags (comma-separated)<input id="f_tags" value="${esc((c.tags || []).join(', '))}"></label>
     <label>Custom fields (JSON)<textarea id="f_cf" rows="2">${esc(JSON.stringify(c.custom_fields || {}))}</textarea></label>
-    <div class="row"><button class="pri" id="save">Save contact</button>${id ? '<button class="danger" id="del">Delete contact</button>' : ''}</div>
-    ${id ? `<h3>Deals</h3><div id="cdeals"></div><h3>Notes</h3>
-      <textarea id="note" rows="2" placeholder="Write a note"></textarea><div class="row" style="margin-top:6px"><button id="addnote">Add note</button></div><div id="notes"></div>` : ''}`, 'side');
+    <div class="row" style="margin-top:12px"><button class="pri" id="save">Save contact</button>${id ? '<button class="danger" id="del">Delete contact</button>' : ''}</div>
+    ${id ? `<h3>Deals</h3><div id="cdeals"></div><h3>Notes timeline</h3>
+      <textarea id="note" rows="2" placeholder="Write a note…"></textarea><div class="row" style="margin-top:8px"><button id="addnote">Add note</button></div><div id="notes"></div>` : ''}`, 'side');
 
   $('#save').onclick = async () => {
     const v = k => $('#f_' + k).value.trim() || null;
-    const row = { first_name: v('first_name'), last_name: v('last_name'), email: v('email'), phone: v('phone'), company: v('company'), source: v('source'),
-      tags: $('#f_tags').value.split(',').map(t => t.trim()).filter(Boolean) };
+    const row = {
+      first_name: v('first_name'), last_name: v('last_name'), email: v('email'), phone: v('phone'),
+      company: v('company'), source: v('source'),
+      tags: $('#f_tags').value.split(',').map(t => t.trim()).filter(Boolean)
+    };
     if (!row.first_name && !row.last_name && !row.email && !row.phone) return toast('Enter at least a name, email or phone.');
     if (row.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(row.email)) return toast('That email address is not valid.');
     try { row.custom_fields = JSON.parse($('#f_cf').value || '{}'); } catch { return toast('Custom fields must be valid JSON.'); }
-    // On failure ok() throws before anything is re-rendered, so typed content is kept
     const saved = await ok(id ? sb.from('contacts').update(row).eq('id', id).select() : sb.from('contacts').insert(row).select());
     await load(); render(); toast('Contact saved', true); openContact(saved[0].id);
   };
@@ -140,7 +188,7 @@ function openContact(id) {
     await ok(sb.from('contacts').delete().eq('id', id)); closeModal(); await load(); render(); toast('Contact deleted', true);
   };
   $('#cdeals').innerHTML = S.deals.filter(d => d.contact_id === id).map(d =>
-    `<div class="mini" data-d="${d.id}">${esc(d.title)} · ${money(d.value)} · ${esc(stageName(d.stage_id))} · ${d.status}</div>`).join('') || '<p class="muted">No deals yet.</p>';
+    `<div class="mini" data-d="${d.id}"><b>${esc(d.title)}</b> · ${money(d.value)} · ${esc(stageName(d.stage_id))} (${d.status})</div>`).join('') || '<p class="muted">No deals yet.</p>';
   $$('#cdeals .mini').forEach(el => el.onclick = () => openDeal(el.dataset.d));
   $('#addnote').onclick = async () => {
     const body = $('#note').value.trim(); if (!body) return toast('Write something first.');
@@ -148,7 +196,7 @@ function openContact(id) {
   };
   loadNotes(id);
 }
-async function loadNotes(id) { // newest first, with date and time
+async function loadNotes(id) {
   const n = await ok(sb.from('activities').select('*').eq('contact_id', id).order('created_at', { ascending: false }));
   const el = $('#notes'); if (!el) return;
   el.innerHTML = n.map(a => `<div class="note"><small>${new Date(a.created_at).toLocaleString()}</small><p>${esc(a.body)}</p></div>`).join('') || '<p class="muted">No notes yet.</p>';
@@ -156,18 +204,33 @@ async function loadNotes(id) { // newest first, with date and time
 
 // ---------- pipeline board (FR-6, FR-7, FR-8) ----------
 function viewBoard() {
-  $('#view').innerHTML = `<div class="bar"><button class="pri" id="adddeal">Add deal</button></div><div class="board">${S.stages.map(s => {
-    const ds = S.deals.filter(d => d.stage_id === s.id);
-    return `<div class="colw"><div class="colh"><b>${esc(s.name)}</b><span>${ds.length} · ${money(ds.reduce((a, d) => a + Number(d.value), 0))}</span></div>
-      <div class="col" data-stage="${s.id}">${ds.map(d => `<div class="card ${d.status}" data-id="${d.id}"><b>${esc(d.title)}</b>
-      <div>${esc(cname(contactById(d.contact_id)))}</div><div class="muted">${money(d.value)}</div></div>`).join('')}</div></div>`;
-  }).join('')}</div>`;
+  const openDeals = S.deals.filter(d => d.status === 'open');
+  const wonDeals = S.deals.filter(d => d.status === 'won');
+  const openVal = openDeals.reduce((a, d) => a + Number(d.value || 0), 0);
+  const wonVal = wonDeals.reduce((a, d) => a + Number(d.value || 0), 0);
+
+  $('#viewActions').innerHTML = `<button class="pri" id="adddeal">+ Add deal</button>`;
+  $('#view').innerHTML = `
+    <div class="summary-bar">
+      <div class="kpi gold"><span>Active Pipeline</span><b>${money(openVal)}</b></div>
+      <div class="kpi won"><span>Won Revenue</span><b>${money(wonVal)}</b></div>
+      <div class="kpi"><span>Open Deals</span><b>${openDeals.length}</b></div>
+      <div class="kpi"><span>Total Contacts</span><b>${S.contacts.length}</b></div>
+    </div>
+    <div class="board">${S.stages.map(s => {
+      const ds = S.deals.filter(d => d.stage_id === s.id);
+      const st = statusFor(s.name);
+      return `<div class="colw st-${st}"><div class="colh"><b>${esc(s.name)}</b><span>${ds.length} · ${money(ds.reduce((a, d) => a + Number(d.value), 0))}</span></div>
+        <div class="col" data-stage="${s.id}">${ds.map(d => `<div class="card ${d.status}" data-id="${d.id}"><b>${esc(d.title)}</b>
+        <div class="c-meta"><span class="muted">${esc(cname(contactById(d.contact_id)))}</span><span class="val">${money(d.value)}</span></div></div>`).join('')}</div></div>`;
+    }).join('')}</div>`;
   $('#adddeal').onclick = () => openDeal(null);
   $$('.card').forEach(el => el.onclick = () => openDeal(el.dataset.id));
-  // delay on touch so the board can still be scrolled sideways with a finger
-  $$('.col').forEach(el => new Sortable(el, { group: 'deals', animation: 150, delay: 150, delayOnTouchOnly: true, onEnd: onDrop }));
+  $$('.col').forEach(el => new Sortable(el, {
+    group: 'deals', animation: 180, delay: 150, delayOnTouchOnly: true,
+    ghostClass: 'card-ghost', dragClass: 'card-drag', onEnd: onDrop
+  }));
 }
-// After a drop, renumber positions in the affected columns and save only what changed
 async function onDrop(evt) {
   const ups = [];
   for (const col of new Set([evt.from, evt.to])) {
@@ -181,7 +244,7 @@ async function onDrop(evt) {
     });
   }
   const failed = (await Promise.all(ups)).find(r => r.error);
-  if (failed) { toast(failed.error.message); await load(); } // put the board back as the database has it
+  if (failed) { toast(failed.error.message); await load(); }
   S.deals.sort((a, b) => a.position - b.position); viewBoard();
 }
 function openDeal(id) {
@@ -191,10 +254,10 @@ function openDeal(id) {
   modal(`<h2>${id ? 'Edit deal' : 'New deal'}</h2>
     <label>Contact<select id="d_c">${opt(S.contacts.map(c => [c.id, cname(c)]), d.contact_id)}</select></label>
     <label>Title<input id="d_t" value="${esc(d.title)}"></label>
-    <label>Value<input id="d_v" type="number" min="0" step="any" value="${d.value}"></label>
+    <label>Value ($)<input id="d_v" type="number" min="0" step="any" value="${d.value}"></label>
     <label>Stage<select id="d_s">${opt(S.stages.map(s => [s.id, s.name]), d.stage_id)}</select></label>
     <label>Status<select id="d_st">${opt(['open', 'won', 'lost'].map(x => [x, x]), d.status)}</select></label>
-    <div class="row"><button class="pri" id="dsave">Save deal</button>${id ? '<button class="danger" id="ddel">Delete deal</button>' : ''}</div>`);
+    <div class="row" style="margin-top:14px"><button class="pri" id="dsave">Save deal</button>${id ? '<button class="danger" id="ddel">Delete deal</button>' : ''}</div>`);
   $('#d_s').onchange = () => $('#d_st').value = statusFor(stageName($('#d_s').value));
   $('#dsave').onclick = async () => {
     const title = $('#d_t').value.trim(); if (!title) return toast('Give the deal a title.');
@@ -212,10 +275,10 @@ function openDeal(id) {
 
 // ---------- stage settings (FR-9) ----------
 function viewSettings() {
-  $('#view').innerHTML = `<h2>Pipeline stages</h2><div id="stl">${S.stages.map((s, i) => `<div class="row"><input value="${esc(s.name)}">
+  $('#view').innerHTML = `<div class="settings-card"><h2>Pipeline stages</h2><div id="stl">${S.stages.map((s, i) => `<div class="row"><input value="${esc(s.name)}">
     <button data-a="up" ${i ? '' : 'disabled'}>Up</button><button data-a="dn" ${i < S.stages.length - 1 ? '' : 'disabled'}>Down</button>
     <button class="danger" data-a="del">Delete</button></div>`).join('')}</div>
-    <div class="row"><input id="ns" placeholder="New stage name"><button class="pri" id="nsb">Add stage</button></div>`;
+    <div class="row" style="margin-top:16px"><input id="ns" placeholder="New stage name"><button class="pri" id="nsb">Add stage</button></div></div>`;
   $$('#stl .row').forEach((r, i) => {
     const s = S.stages[i];
     r.querySelector('input').onchange = async e => {
@@ -230,7 +293,7 @@ function viewSettings() {
         if (n) return toast(`"${s.name}" still has ${n} deal(s). Move them to another stage first.`);
         if (!confirm(`Delete stage "${s.name}"?`)) return;
         await ok(sb.from('stages').delete().eq('id', s.id));
-      } else { // swap positions with the neighbour
+      } else {
         const o = S.stages[i + (a === 'up' ? -1 : 1)];
         await ok(sb.from('stages').update({ position: o.position }).eq('id', s.id));
         await ok(sb.from('stages').update({ position: s.position }).eq('id', o.id));
@@ -246,11 +309,12 @@ function viewSettings() {
 }
 
 // ---------- CSV (FR-10, FR-11) ----------
-// Header variants accepted on import (compared lowercase, letters and digits only)
-const ALIAS = { first_name: ['firstname', 'first', 'givenname'], last_name: ['lastname', 'last', 'surname', 'familyname'],
+const ALIAS = {
+  first_name: ['firstname', 'first', 'givenname'], last_name: ['lastname', 'last', 'surname', 'familyname'],
   name: ['name', 'fullname', 'contactname'], email: ['email', 'emailaddress'], phone: ['phone', 'phonenumber', 'mobile', 'mobilephone', 'cell'],
-  company: ['company', 'companyname', 'businessname', 'organization'], source: ['source', 'leadsource'], tags: ['tags', 'tag'], custom_fields: ['customfields'] };
-function parseCSV(t) { // handles quoted fields, escaped quotes and newlines inside quotes
+  company: ['company', 'companyname', 'businessname', 'organization'], source: ['source', 'leadsource'], tags: ['tags', 'tag'], custom_fields: ['customfields']
+};
+function parseCSV(t) {
   const rows = []; let r = [], f = '', q = false;
   for (let i = 0; i < t.length; i++) {
     const c = t[i];
@@ -281,8 +345,11 @@ async function importCSV(file) {
     if (email && seen.has(email.toLowerCase())) { dup++; continue; }
     if (email) seen.add(email.toLowerCase());
     let cf = {}; try { cf = JSON.parse(g(r, 'custom_fields') || '{}'); } catch { /* ignore bad JSON */ }
-    out.push({ first_name: first || null, last_name: last || null, email: email || null, phone: phone || null, company: g(r, 'company') || null,
-      source: g(r, 'source') || null, tags: g(r, 'tags').split(/[;,|]/).map(t => t.trim()).filter(Boolean), custom_fields: cf });
+    out.push({
+      first_name: first || null, last_name: last || null, email: email || null, phone: phone || null,
+      company: g(r, 'company') || null, source: g(r, 'source') || null,
+      tags: g(r, 'tags').split(/[;,|]/).map(t => t.trim()).filter(Boolean), custom_fields: cf
+    });
   }
   for (let i = 0; i < out.length; i += 500) await ok(sb.from('contacts').insert(out.slice(i, i + 500)));
   await load(); render();
