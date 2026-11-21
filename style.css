@@ -184,7 +184,7 @@ label > input, label > select, label > textarea { margin-top: 4px; }
   border-radius: 13px;
   background: var(--brand);
   box-shadow: 0 8px 20px rgba(75, 63, 214, .45);
-  transition: transform .36s cubic-bezier(.22, 1, .36, 1), width .36s cubic-bezier(.22, 1, .36, 1), height .36s cubic-bezier(.22, 1, .36, 1);
+  will-change: transform, width, height;
   pointer-events: none;
 }
 .rail button {
@@ -598,7 +598,7 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 
 /* Portfolio background art (same images as loomwell-ops.github.io) */
-.bg { position: fixed; inset: 0 0 auto 0; height: max(62vh, 26rem); z-index: -1; pointer-events: none; overflow: hidden; -webkit-mask-image: linear-gradient(#000 45%, transparent); mask-image: linear-gradient(#000 45%, transparent); }
+.bg { position: fixed; inset: 0 0 auto 0; height: max(85vh, 34rem); z-index: -1; pointer-events: none; overflow: hidden; -webkit-mask-image: linear-gradient(#000 45%, transparent); mask-image: linear-gradient(#000 45%, transparent); }
 .bg::before { content: ""; position: absolute; inset: 0; background: var(--bgimg) right top / cover no-repeat; }
 .bg::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, var(--bg) 0, transparent 55%); }
 
@@ -617,3 +617,64 @@ tbody tr.more td { text-align: center; }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
 @media (max-width: 720px) { #toast { bottom: 84px; } }
+
+/* 1. Frosted glass: big panels only (cards stay near-opaque so dragging stays smooth) */
+.colw, .contacts-pane, .settings-card, .wrap, .flow-strip {
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(140%); backdrop-filter: blur(12px) saturate(140%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .7);
+}
+:root[data-theme="dark"] .colw, :root[data-theme="dark"] .contacts-pane, :root[data-theme="dark"] .settings-card, :root[data-theme="dark"] .wrap, :root[data-theme="dark"] .flow-strip { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16); }
+.card { background: color-mix(in srgb, var(--surface) 92%, transparent); }
+
+/* 4. Metallic anchor strip + stage share bars */
+.summary-bar {
+  background: linear-gradient(125deg, rgba(255, 255, 255, .10), transparent 45%), linear-gradient(135deg, #1a1840 0%, #26215c 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .24), 0 14px 34px var(--glow);
+}
+.share { height: 3px; margin: -6px 4px 10px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.share i { display: block; height: 100%; transform-origin: left; transform: scaleX(var(--share, 0)); background: linear-gradient(90deg, var(--accent), var(--g2)); }
+.colw.st-won .share i { background: var(--won); }
+
+/* 3. Tab-switch entrance (only while #view has .enter, set by nav clicks) */
+@keyframes viewIn { from { opacity: 0; filter: blur(6px); transform: translateY(6px); } }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+@keyframes grow { from { transform: scaleX(0); } }
+#view.enter { animation: viewIn .32s cubic-bezier(.22, 1, .36, 1) backwards; }
+#view.enter .colw, #view.enter .card, #view.enter tbody tr { animation: rise .42s cubic-bezier(.22, 1, .36, 1) backwards; animation-delay: calc(var(--i, 0) * .03s); }
+#view.enter .share i { animation: grow .7s cubic-bezier(.22, 1, .36, 1) backwards; animation-delay: calc(var(--i, 0) * .03s + .2s); }
+
+/* 5. Lit diagonal seam on the login card */
+.auth-side { background: none; position: relative; isolation: isolate; padding-left: 52px; overflow: hidden; }
+.auth-side::before {
+  content: ""; position: absolute; top: 0; bottom: 0; left: -34px; right: -34px; z-index: -1; transform: skewX(-6deg);
+  background: linear-gradient(145deg, rgba(19, 17, 43, .72) 0%, rgba(19, 17, 43, .22) 100%), url(bg.jpg) 72% center / cover, #13112b;
+  box-shadow: inset 2px 0 0 rgba(255, 255, 255, .55), inset 16px 0 28px -12px rgba(156, 147, 255, .6);
+}
+
+/* 6. Stage flow strip with a one-shot light bead */
+.flow-strip { position: relative; display: flex; justify-content: space-between; align-items: center; gap: 10px; max-width: 1180px; margin-bottom: 18px; padding: 16px 22px; border: 1px solid var(--line); border-radius: 16px; overflow-x: auto; }
+.flow-strip .flow-chip { position: relative; z-index: 1; flex: none; background: var(--surface); }
+.flow-track { position: absolute; left: 28px; right: 28px; top: 50%; height: 1px; background: linear-gradient(90deg, transparent, var(--line) 8%, var(--line) 92%, transparent); }
+.flow-bead { position: absolute; top: -3px; left: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--g2); box-shadow: 0 0 12px 3px var(--g2); opacity: 0; }
+.flow-strip.play .flow-bead { animation: bead 2.4s cubic-bezier(.45, 0, .2, 1) .35s 1 both; }
+@keyframes bead { 0% { left: 0; opacity: 0; } 10%, 90% { opacity: 1; } 100% { left: 100%; opacity: 0; } }
+
+/* 7. Rail tooltips, avatars, Won/Lost badges */
+@media (hover: hover) and (min-width: 721px) {
+  .rail [data-tip]::after { content: attr(data-tip); position: absolute; left: calc(100% + 14px); top: 50%; transform: translate(-6px, -50%); opacity: 0; pointer-events: none; white-space: nowrap; z-index: 5; background: #0b091c; color: #fff; border: 1px solid rgba(255, 255, 255, .14); padding: 5px 11px; border-radius: 999px; font: 500 12.5px/1 "IBM Plex Sans", system-ui, sans-serif; box-shadow: 0 8px 22px rgba(0, 0, 0, .35); transition: opacity .16s, transform .16s; }
+  .rail [data-tip]:hover::after, .rail [data-tip]:focus-visible::after { opacity: 1; transform: translate(0, -50%); }
+}
+.who { display: inline-flex; align-items: center; gap: 8px; }
+.av { display: inline-grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 50%; font: 600 11px/1 "IBM Plex Sans", sans-serif; }
+.card .who { gap: 6px; }
+.card .av { width: 20px; height: 20px; font-size: 9px; }
+.st-badge { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; padding: 1px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; vertical-align: 1px; }
+.st-badge i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+.st-badge.won { color: var(--won); background: color-mix(in srgb, var(--won) 14%, transparent); }
+.st-badge.lost { color: var(--lost); background: color-mix(in srgb, var(--lost) 14%, transparent); }
+@media (max-width: 720px) {
+  .rail #railNav button { width: auto; min-width: 64px; height: 50px; padding: 4px 10px; flex-direction: column; gap: 2px; }
+  .rail #railNav button span { display: block; font-size: 10.5px; font-weight: 500; }
+  .auth-side { display: none; }
+}

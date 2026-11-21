@@ -46,12 +46,22 @@ $('#themeBtn').onclick = e => {
 };
 
 // ---------- offset-safe rail pill ----------
-function movePill() {
-  const active = $('#railNav button.on'), pill = $('#railPill');
-  if (!active || !pill) return;
-  pill.style.width = active.offsetWidth + 'px';
-  pill.style.height = active.offsetHeight + 'px';
-  pill.style.transform = `translate(${active.offsetLeft}px, ${active.offsetTop}px)`;
+let pillPos = null;
+function movePill(animate) {
+  const a = $('#railNav button.on'), p = $('#railPill'); if (!a || !p) return;
+  const x = a.offsetLeft, y = a.offsetTop, w = a.offsetWidth, h = a.offsetHeight, from = pillPos;
+  pillPos = { x, y };
+  p.getAnimations().forEach(n => n.cancel());
+  p.style.width = w + 'px'; p.style.height = h + 'px'; p.style.transform = `translate(${x}px, ${y}px)`;
+  if (animate !== true || !from || (from.x === x && from.y === y) || matchMedia('(prefers-reduced-motion:reduce)').matches) return;
+  // leading edge races ahead (0.22s), trailing edge springs in (0.36s)
+  const vert = Math.abs(y - from.y) >= Math.abs(x - from.x), sx = Math.min(x, from.x), sy = Math.min(y, from.y);
+  const sw = vert ? w : w + Math.abs(x - from.x), sh = vert ? h + Math.abs(y - from.y) : h;
+  p.animate([
+    { transform: `translate(${from.x}px, ${from.y}px)`, width: w + 'px', height: h + 'px', easing: 'cubic-bezier(.2,.9,.3,1)' },
+    { transform: `translate(${sx}px, ${sy}px)`, width: sw + 'px', height: sh + 'px', offset: .38, easing: 'cubic-bezier(.34,1.45,.64,1)' },
+    { transform: `translate(${x}px, ${y}px)`, width: w + 'px', height: h + 'px' }
+  ], { duration: 580 });
 }
 window.addEventListener('resize', movePill);
 
@@ -78,6 +88,13 @@ async function fetchAll(table, order) {
   }
 }
 const cname = c => c ? ([c.first_name, c.last_name].filter(Boolean).join(' ') || c.email || c.phone || 'Unnamed') : 'Unknown';
+const PAL = [['#c9c2ff', '#2b2570'], ['#ffc9b5', '#6b2a10'], ['#f3e0a6', '#5a4300'], ['#b7ecd2', '#0f4a31'], ['#c7e0ff', '#17406e']];
+function avatar(c) {
+  const n = cname(c), ini = (n.match(/[A-Za-z0-9]/g) && n.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase()) || '?';
+  let h = 0; for (const ch of String((c && c.id) || n)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const [bg, fg] = PAL[h % PAL.length];
+  return `<span class="av" style="background:${bg};color:${fg}" aria-hidden="true">${esc(ini)}</span>`;
+}
 const contactById = id => S.contacts.find(c => c.id === id);
 const stageName = id => (S.stages.find(s => s.id === id) || {}).name || '';
 const statusFor = n => { n = (n || '').trim().toLowerCase(); return n === 'won' || n === 'lost' ? n : 'open'; };
@@ -146,14 +163,19 @@ async function load() {
   if (S.selectedContact && !contactById(S.selectedContact)) S.selectedContact = null;
 }
 
-$$('#railNav button').forEach(b => b.onclick = () => { if (dirty && !confirm('Discard unsaved changes?')) return; dirty = false; S.view = b.dataset.v; render(); });
-function render() {
+$$('#railNav button').forEach(b => b.onclick = () => { if (dirty && !confirm('Discard unsaved changes?')) return; dirty = false; S.view = b.dataset.v; render(true); });
+let enterT;
+function startEnter() { const v = $('#view'); clearTimeout(enterT); v.classList.remove('enter'); void v.offsetWidth; v.classList.add('enter'); enterT = setTimeout(() => v.classList.remove('enter'), 1000); }
+function indexStagger() { ['.colw', '.card', '#rows tr'].forEach(s => $$(s, $('#view')).forEach((el, i) => el.style.setProperty('--i', Math.min(i, 12)))); }
+function render(nav) {
   $$('#railNav button').forEach(b => { const on = b.dataset.v === S.view; b.classList.toggle('on', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
-  movePill();
+  movePill(nav === true);
+  if (nav === true) startEnter();
   const titles = { pipeline: 'Pipeline', contacts: 'Contacts', settings: 'Stage Settings' };
   $('#viewTitle').textContent = titles[S.view] || '';
   $('#viewActions').innerHTML = '';
   ({ contacts: viewContacts, pipeline: viewBoard, settings: viewSettings })[S.view]();
+  if (nav === true) indexStagger();
 }
 
 // ---------- modal & slide-over drawer ----------
@@ -340,7 +362,7 @@ function rows() {
     $('span', th).textContent = on ? (S.sort.d > 0 ? ' ▲' : ' ▼') : '';
   });
   const shown = list.slice(0, S.lim), left = list.length - shown.length;
-  $('#rows').innerHTML = shown.map(c => `<tr data-id="${c.id}" tabindex="0" class="${c.id === S.selectedContact ? 'selected' : ''}"><td><b>${esc(cname(c))}</b></td><td>${esc(c.email)}</td><td>${esc(c.phone)}</td><td>${esc(c.company)}</td>
+  $('#rows').innerHTML = shown.map(c => `<tr data-id="${c.id}" tabindex="0" class="${c.id === S.selectedContact ? 'selected' : ''}"><td><span class="who">${avatar(c)}<b>${esc(cname(c))}</b></span></td><td>${esc(c.email)}</td><td>${esc(c.phone)}</td><td>${esc(c.company)}</td>
     <td>${(c.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</td></tr>`).join('')
     || '<tr><td colspan="5" class="muted">No contacts match. Add one or import a CSV.</td></tr>';
   if (left > 0) {
@@ -361,6 +383,7 @@ function viewBoard() {
   const closedCount = wonDeals.length + S.deals.filter(d => d.status === 'lost').length;
   const openVal = openDeals.reduce((a, d) => a + Number(d.value || 0), 0);
   const wonVal = wonDeals.reduce((a, d) => a + Number(d.value || 0), 0);
+  const liveTotal = S.stages.filter(s => statusFor(s.name) !== 'lost').reduce((a, s) => a + S.deals.filter(d => d.stage_id === s.id).reduce((x, d) => x + Number(d.value || 0), 0), 0);
   const winRate = closedCount ? Math.round((wonDeals.length / closedCount) * 100) + '%' : '—';
 
   $('#viewActions').innerHTML = `<button class="pri" id="adddeal">+ Add deal</button>`;
@@ -374,10 +397,12 @@ function viewBoard() {
     <div class="board">${S.stages.map(s => {
       const ds = S.deals.filter(d => d.stage_id === s.id);
       const st = statusFor(s.name);
+      const share = st === 'lost' || !liveTotal ? 0 : ds.reduce((a, d) => a + Number(d.value || 0), 0) / liveTotal;
       return `<div class="colw st-${st}">
         <div class="colh"><b>${esc(s.name)} <span class="cnt-badge">${ds.length}</span></b><span class="col-val">${money(ds.reduce((a, d) => a + Number(d.value), 0))}</span></div>
-        <div class="col" data-stage="${s.id}">${ds.map(d => `<div class="card ${esc(d.status)}" data-id="${d.id}" tabindex="0" role="button"><b>${esc(d.title)}</b>
-          <div class="c-meta"><span class="muted">${esc(cname(contactById(d.contact_id)))}</span><span class="val">${money(d.value)}</span></div></div>`).join('')}</div>
+        <div class="share" aria-hidden="true"><i style="--share:${share.toFixed(3)}"></i></div>
+        <div class="col" data-stage="${s.id}">${ds.map(d => `<div class="card ${esc(d.status)}" data-id="${d.id}" tabindex="0" role="button"><b>${esc(d.title)}${d.status !== 'open' ? `<span class="st-badge ${esc(d.status)}"><i></i>${d.status === 'won' ? 'Won' : 'Lost'}</span>` : ''}</b>
+          <div class="c-meta"><span class="muted who">${avatar(contactById(d.contact_id))}${esc(cname(contactById(d.contact_id)))}</span><span class="val">${money(d.value)}</span></div></div>`).join('')}</div>
         <button type="button" class="col-add" data-stage-add="${s.id}">+ Add deal</button>
       </div>`;
     }).join('')}</div>`;
@@ -441,6 +466,10 @@ function openDeal(id, defaultStageId = null, defaultContactId = null) {
 // ---------- stage settings (FR-9) ----------
 function viewSettings() {
   $('#view').innerHTML = `
+    <div class="flow-strip ${$('#view').classList.contains('enter') ? 'play' : ''}" role="img" aria-label="Stage order: ${esc(S.stages.map(s => s.name).join(', '))}">
+      <div class="flow-track"><i class="flow-bead"></i></div>
+      ${S.stages.map(s => `<span class="flow-chip"><span class="stage-dot ${statusFor(s.name)}"></span>${esc(s.name)}</span>`).join('')}
+    </div>
     <div class="settings-grid">
       <div class="settings-card">
         <h2>Pipeline stages</h2>
@@ -461,12 +490,7 @@ function viewSettings() {
       </div>
 
       <div class="settings-card">
-        <h2>Live stage flow</h2>
-        <p class="sub">Current left-to-right order on your board.</p>
-        <div class="flow-preview">
-          ${S.stages.map(s => `<span class="flow-chip"><span class="stage-dot ${statusFor(s.name)}"></span>${esc(s.name)}</span>`).join('')}
-        </div>
-        <h3>Workspace &amp; Backup</h3>
+        <h2>Workspace &amp; Backup</h2>
         <div class="kv-list">
           <div class="kv-row"><span>Business Name</span><b>${esc(C.businessName)}</b></div>
           <div class="kv-row"><span>Pipeline</span><b>${esc(S.pipeline.name)}</b></div>
