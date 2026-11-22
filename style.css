@@ -1074,3 +1074,22 @@ tbody tr.more td { text-align: center; }
 
 .settings-col { display: grid; gap: 18px; align-content: start; }
 #view.enter .rp-t i { transform-origin: left; animation: grow .65s cubic-bezier(.22, 1, .36, 1) backwards; animation-delay: calc(var(--i, 0) * .03s + .15s); }
+
+/* ---- V4 DOOMSDAY PINNACLE: Shockwave pulse, topbar visor glint, 3D deep bevels ---- */
+.topbar::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -1px; height: 1.5px;
+  background: linear-gradient(90deg, transparent, var(--accent) 28%, var(--g2) 52%, var(--mark) 72%, transparent);
+  opacity: .55;
+  pointer-events: none;
+}
+.colw.won-celebrate {
+  box-shadow: 0 0 0 2px var(--won), 0 0 42px color-mix(in srgb, var(--won) 45%, transparent), inset 0 0 42px color-mix(in srgb, var(--won) 18%, transparent);
+}
+@keyframes doomsdayPulse {
+  0% { box-shadow: 0 20px 46px var(--glow), 0 0 0 0 color-mix(in srgb, var(--g2) 55%, transparent); }
+  55% { box-shadow: 0 26px 64px var(--glow), 0 0 0 14px transparent; }
+  100% { box-shadow: 0 20px 46px var(--glow), 0 4px 0 rgba(12, 10, 32, .65), inset 0 1px 0 rgba(255, 255, 255, .36); }
+}
+.summary-bar.surge { animation: doomsdayPulse .72s cubic-bezier(.22, 1, .36, 1); }

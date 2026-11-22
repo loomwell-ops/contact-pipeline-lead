@@ -126,12 +126,13 @@ $('#brandMark').textContent = C.businessName.split(/\s+/).map(w => w[0]).join(''
     const clock = new THREE.Clock();
     (function animate() {
       requestAnimationFrame(animate);
-      const t = clock.getElapsedTime();
+      const t = clock.getElapsedTime(); const bBoost = window.__CRM_3D_BOOST__ || 1; if (bBoost > 1) window.__CRM_3D_BOOST__ = 1 + (bBoost - 1) * 0.94; const sp = 0.22 * bBoost;
       curX += (targetX - curX) * 0.045;
       curY += (targetY - curY) * 0.045;
 
-      knotMesh.rotation.x = t * 0.22 + curY * 0.45;
-      knotMesh.rotation.y = t * 0.31 + curX * 0.55;
+      knotMesh.rotation.x = t * sp + curY * 0.52;
+      knotMesh.rotation.y = t * (0.31 * bBoost) + curX * 0.62;
+      knotMesh.scale.setScalar(1 + (bBoost - 1) * 0.08);
       knotMesh.rotation.z = Math.sin(t * 0.25) * 0.2;
 
       cageMesh.rotation.x = -t * 0.09 + curY * 0.25;
@@ -562,7 +563,7 @@ function indexStagger() { ['.colw', '.card', '#rows tr', '.rp-row'].forEach(s =>
 function render(nav) {
   $$('#railNav button').forEach(b => { const on = b.dataset.v === S.view; b.classList.toggle('on', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   movePill(nav === true);
-  if (nav === true) { startEnter(); SEL.clear(); }
+  if (nav === true) { startEnter(); SEL.clear(); window.dispatchEvent(new CustomEvent('crm:energy', { detail: { boost: 0.65 } })); }
   const titles = { pipeline: 'Pipeline', contacts: 'Contacts', reports: 'Reports', settings: 'Stage Settings', ...EXT.titles };
   $('#viewTitle').textContent = titles[S.view] || '';
   $('#viewActions').innerHTML = '';
@@ -865,7 +866,7 @@ function viewBoard() {
     if (el) {
       el.classList.add('landed');
       const colw = el.closest('.colw');
-      if (colw && colw.classList.contains('st-won')) colw.classList.add('won-celebrate');
+      if (colw && colw.classList.contains('st-won')) { colw.classList.add('won-celebrate'); window.dispatchEvent(new CustomEvent('crm:energy', { detail: { boost: 1.8 } })); }
     }
   }
 }
@@ -1121,3 +1122,15 @@ function exportCSV(list) {
   a.download = 'contacts-' + new Date().toISOString().slice(0, 10) + '.csv'; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
+
+// ---- V4 DOOMSDAY ENERGY REACTIVITY (3D sculpture reacts to view switches & Won drops) ----
+window.addEventListener('crm:energy', e => {
+  const boost = (e.detail && e.detail.boost) || 1;
+  window.__CRM_3D_BOOST__ = Math.min(3.5, (window.__CRM_3D_BOOST__ || 1) + boost);
+  const sbEl = $('#view .summary-bar');
+  if (sbEl && !reduced()) {
+    sbEl.classList.remove('surge');
+    void sbEl.offsetWidth;
+    sbEl.classList.add('surge');
+  }
+});
