@@ -19,6 +19,141 @@ document.documentElement.style.setProperty('--brand', C.accent);
 $('#brand').textContent = $('#loginBrand').textContent = $('#loginBrandSide').textContent = C.businessName;
 $('#brandMark').textContent = C.businessName.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
+// ---------- 3D WebGL Iridescent Glass Prism & Floating Geometry Stage (Three.js) ----------
+(function init3DStage() {
+  const canvas = $('#glStage');
+  if (!canvas || !window.THREE || matchMedia('(prefers-reduced-motion:reduce)').matches) return;
+  try {
+    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 0, 14);
+
+    // Three-point studio lighting (indigo key, warm coral rim, cool cyan fill)
+    const amb = new THREE.AmbientLight(0xffffff, 0.65);
+    const keyLight = new THREE.PointLight(0x7c6eff, 38, 40);
+    keyLight.position.set(6, 5, 8);
+    const rimLight = new THREE.PointLight(0xff7e5f, 34, 40);
+    rimLight.position.set(-7, -4, 6);
+    const topLight = new THREE.DirectionalLight(0xd8d4ff, 1.4);
+    topLight.position.set(2, 8, 5);
+    scene.add(amb, keyLight, rimLight, topLight);
+
+    const group = new THREE.Group();
+    group.position.set(3.4, 0.4, -1.5);
+    scene.add(group);
+
+    // Hero twisted torus-knot crystal sculpture
+    const knotGeo = new THREE.TorusKnotGeometry(2.35, 0.62, 180, 28, 2, 3);
+    const glassMat = new THREE.MeshPhysicalMaterial({
+      color: 0x6c5ce7,
+      emissive: 0x1e1654,
+      emissiveIntensity: 0.45,
+      roughness: 0.14,
+      metalness: 0.18,
+      transmission: 0.72,
+      thickness: 1.6,
+      ior: 1.48,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.08,
+      transparent: true,
+      opacity: 0.85
+    });
+    const knotMesh = new THREE.Mesh(knotGeo, glassMat);
+    group.add(knotMesh);
+
+    // Luminous wireframe cage orbiting the crystal
+    const cageGeo = new THREE.IcosahedronGeometry(3.85, 1);
+    const cageMat = new THREE.MeshBasicMaterial({
+      color: 0x9c93ff,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.16
+    });
+    const cageMesh = new THREE.Mesh(cageGeo, cageMat);
+    group.add(cageMesh);
+
+    // Floating crystalline octahedron satellites
+    const satGeo = new THREE.OctahedronGeometry(0.42, 0);
+    const satMat = new THREE.MeshPhysicalMaterial({
+      color: 0xff9a76,
+      emissive: 0x6b2a10,
+      emissiveIntensity: 0.5,
+      roughness: 0.18,
+      metalness: 0.35,
+      clearcoat: 1.0
+    });
+    const sats = [];
+    for (let i = 0; i < 7; i++) {
+      const m = new THREE.Mesh(satGeo, satMat);
+      const ang = (i / 7) * Math.PI * 2;
+      const rad = 4.2 + (i % 3) * 0.75;
+      m.userData = { ang, rad, speed: 0.25 + (i % 4) * 0.08, yOff: (i - 3) * 0.65, scale: 0.65 + (i % 3) * 0.35 };
+      m.scale.setScalar(m.userData.scale);
+      group.add(m);
+      sats.push(m);
+    }
+
+    // Fine 3D stardust field
+    const starCount = 140;
+    const pos = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount * 3; i += 3) {
+      pos[i] = (Math.random() - 0.5) * 26;
+      pos[i + 1] = (Math.random() - 0.5) * 16;
+      pos[i + 2] = (Math.random() - 0.5) * 12 - 2;
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const starMat = new THREE.PointsMaterial({ color: 0xc9c2ff, size: 0.06, transparent: true, opacity: 0.55 });
+    const stars = new THREE.Points(starGeo, starMat);
+    scene.add(stars);
+
+    let targetX = 0, targetY = 0, curX = 0, curY = 0;
+    window.addEventListener('pointermove', e => {
+      targetX = (e.clientX / window.innerWidth - 0.5) * 2;
+      targetY = (e.clientY / window.innerHeight - 0.5) * 2;
+    }, { passive: true });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    const clock = new THREE.Clock();
+    (function animate() {
+      requestAnimationFrame(animate);
+      const t = clock.getElapsedTime();
+      curX += (targetX - curX) * 0.045;
+      curY += (targetY - curY) * 0.045;
+
+      knotMesh.rotation.x = t * 0.22 + curY * 0.45;
+      knotMesh.rotation.y = t * 0.31 + curX * 0.55;
+      knotMesh.rotation.z = Math.sin(t * 0.25) * 0.2;
+
+      cageMesh.rotation.x = -t * 0.09 + curY * 0.25;
+      cageMesh.rotation.y = -t * 0.12 + curX * 0.25;
+
+      group.position.x = 3.4 + curX * 0.55;
+      group.position.y = 0.4 - curY * 0.45 + Math.sin(t * 0.7) * 0.18;
+
+      for (const s of sats) {
+        const a = s.userData.ang + t * s.userData.speed;
+        s.position.set(Math.cos(a) * s.userData.rad, s.userData.yOff + Math.sin(t * 1.1 + a) * 0.35, Math.sin(a) * s.userData.rad);
+        s.rotation.x = t * 0.9;
+        s.rotation.y = t * 1.2;
+      }
+      stars.rotation.y = t * 0.02 + curX * 0.05;
+      renderer.render(scene, camera);
+    })();
+  } catch (err) {
+    console.warn('3D WebGL stage fallback:', err);
+  }
+})();
+
 // ---------- circular theme toggle (View Transitions API) ----------
 function setThemeIcon(t) {
   $('#themeIcon').innerHTML = t === 'dark'
@@ -47,12 +182,36 @@ $('#themeBtn').onclick = e => {
   });
 };
 
-// ---------- cursor-following frosted glass rim spotlight ----------
-if (matchMedia('(hover: hover)').matches) {
-  $('#app').addEventListener('pointermove', e => {
-    const card = e.target.closest('.summary-bar, .settings-card, .colw');
-    if (!card) return;
+// ---------- 3D Interactive Tilt + Specular Holographic Glare ----------
+if (matchMedia('(hover: hover)').matches && !matchMedia('(prefers-reduced-motion:reduce)').matches) {
+  let activeTilt = null;
+  document.addEventListener('pointermove', e => {
+    // 1. Ambient glass rim spotlight on large containers
+    const panel = e.target.closest('.summary-bar, .settings-card, .colw');
+    if (panel) {
+      const pr = panel.getBoundingClientRect();
+      panel.style.setProperty('--mx', (e.clientX - pr.left).toFixed(1) + 'px');
+      panel.style.setProperty('--my', (e.clientY - pr.top).toFixed(1) + 'px');
+    }
+    // 2. Real 3D perspective tilt + specular glare on deal cards & auth card
+    const card = e.target.closest('.card, .auth-card');
+    if (activeTilt && activeTilt !== card) {
+      activeTilt.style.removeProperty('--rx');
+      activeTilt.style.removeProperty('--ry');
+      activeTilt.style.removeProperty('--tz');
+      activeTilt = null;
+    }
+    if (!card || card.classList.contains('card-drag')) return;
+    activeTilt = card;
     const r = card.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width;
+    const py = (e.clientY - r.top) / r.height;
+    const maxDeg = card.classList.contains('auth-card') ? 3.5 : 7.5;
+    const rx = ((0.5 - py) * maxDeg * 2).toFixed(2) + 'deg';
+    const ry = ((px - 0.5) * maxDeg * 2).toFixed(2) + 'deg';
+    card.style.setProperty('--rx', rx);
+    card.style.setProperty('--ry', ry);
+    card.style.setProperty('--tz', card.classList.contains('auth-card') ? '8px' : '12px');
     card.style.setProperty('--mx', (e.clientX - r.left).toFixed(1) + 'px');
     card.style.setProperty('--my', (e.clientY - r.top).toFixed(1) + 'px');
   }, { passive: true });
@@ -70,9 +229,9 @@ function movePill(animate) {
   const vert = Math.abs(y - from.y) >= Math.abs(x - from.x), sx = Math.min(x, from.x), sy = Math.min(y, from.y);
   const sw = vert ? w : Math.max(x + w, from.x + (from.w || w)) - sx, sh = vert ? h + Math.abs(y - from.y) : h;
   p.animate([
-    { transform: `translate(${from.x}px, ${from.y}px)`, width: (from.w || w) + 'px', height: h + 'px', boxShadow: '0 8px 24px rgba(75,63,214,.55)', easing: 'cubic-bezier(.2,.9,.3,1)' },
-    { transform: `translate(${sx}px, ${sy}px)`, width: sw + 'px', height: sh + 'px', boxShadow: '0 10px 32px rgba(194,78,23,.65), 0 0 24px rgba(156,147,255,.7)', offset: .38, easing: 'cubic-bezier(.34,1.45,.64,1)' },
-    { transform: `translate(${x}px, ${y}px)`, width: w + 'px', height: h + 'px', boxShadow: '0 8px 24px rgba(75,63,214,.55)' }
+    { transform: `translate(${from.x}px, ${from.y}px)`, width: (from.w || w) + 'px', height: h + 'px', boxShadow: '0 10px 28px rgba(75,63,214,.62)', easing: 'cubic-bezier(.2,.9,.3,1)' },
+    { transform: `translate(${sx}px, ${sy}px)`, width: sw + 'px', height: sh + 'px', boxShadow: '0 12px 36px rgba(194,78,23,.72), 0 0 28px rgba(156,147,255,.78)', offset: .38, easing: 'cubic-bezier(.34,1.45,.64,1)' },
+    { transform: `translate(${x}px, ${y}px)`, width: w + 'px', height: h + 'px', boxShadow: '0 10px 28px rgba(75,63,214,.62)' }
   ], { duration: 600 });
 }
 window.addEventListener('resize', movePill);
@@ -683,7 +842,7 @@ function viewBoard() {
       return `<div class="colw st-${st}">
         <div class="colh"><b>${esc(s.name)} <span class="cnt-badge">${ds.length}</span></b><span class="col-val">${money(ds.reduce((a, d) => a + Number(d.value), 0))}</span></div>
         <div class="share" aria-hidden="true"><i style="--share:${share.toFixed(3)}"></i></div>
-        <div class="col" data-stage="${s.id}">${ds.map(d => `<div class="card ${esc(d.status)}${d.id === topId ? ' top-deal' : ''}" data-id="${d.id}" data-s="${esc(d.status)}" data-v="${Number(d.value || 0)}" data-t="${esc((d.title + ' ' + cname(contactById(d.contact_id))).toLowerCase())}" tabindex="0" role="button"><b>${esc(d.title)}${d.id === topId ? '<span class="top-badge">Top</span>' : ''}${d.status !== 'open' ? `<span class="st-badge ${esc(d.status)}"><i></i>${d.status === 'won' ? 'Won' : 'Lost'}</span>` : ''}</b>
+        <div class="col" data-stage="${s.id}">${ds.map(d => `<div class="card tilt-3d ${esc(d.status)}${d.id === topId ? ' top-deal' : ''}" data-id="${d.id}" data-s="${esc(d.status)}" data-v="${Number(d.value || 0)}" data-t="${esc((d.title + ' ' + cname(contactById(d.contact_id))).toLowerCase())}" tabindex="0" role="button"><b>${esc(d.title)}${d.id === topId ? '<span class="top-badge">Top</span>' : ''}${d.status !== 'open' ? `<span class="st-badge ${esc(d.status)}"><i></i>${d.status === 'won' ? 'Won' : 'Lost'}</span>` : ''}</b>
           <div class="c-meta"><span class="muted who">${avatar(contactById(d.contact_id))}${esc(cname(contactById(d.contact_id)))}</span><span class="val">${money(d.value)}</span></div></div>`).join('')}</div>
         <button type="button" class="col-add" data-stage-add="${s.id}">+ Add deal</button>
       </div>`;
