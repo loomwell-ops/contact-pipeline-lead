@@ -263,6 +263,12 @@ function openDupes() {
     const row = {}; for (const k of ['first_name', 'last_name', 'email', 'phone', 'company', 'source']) if (!p[k]) { const o = others.find(x => x[k]); if (o) row[k] = o[k]; }
     row.tags = [...new Set([p, ...others].flatMap(c => c.tags || []))];
     row.custom_fields = Object.assign({}, ...others.map(c => c.custom_fields || {}).reverse(), p.custom_fields || {});
+    { // email status: never lose an unsubscribe. Blocked beats subscribed beats none.
+      const all = [p, ...others], blocked = all.find(c => BLOCKED.includes(c.email_status)), sub = all.find(c => c.email_status === 'subscribed');
+      const win = blocked || sub;
+      if (win && win.email_status !== p.email_status) { row.email_status = win.email_status; row.unsubscribed_at = win.unsubscribed_at; row.consented_at = win.consented_at; row.consent_source = win.consent_source; }
+      else if (!p.consented_at) { const o = all.find(c => c.consented_at); if (o && p.email_status === 'subscribed') { row.consented_at = o.consented_at; row.consent_source = o.consent_source; } }
+    }
     try {
       await ok(sb.from('deals').update({ contact_id: pid }).in('contact_id', oids));
       await ok(sb.from('activities').update({ contact_id: pid }).in('contact_id', oids));
@@ -391,6 +397,10 @@ function contactLinks(c) {
   }
   return out.length ? `<div class="row c-links">${out.join('')}</div>` : '';
 }
+// ---------- email consent (Module 3a) ----------
+const ES = [['none', 'Never opted in'], ['subscribed', 'Subscribed'], ['unsubscribed', 'Unsubscribed'], ['bounced', 'Bounced'], ['complained', 'Complained']];
+const BLOCKED = ['unsubscribed', 'bounced', 'complained'];
+const esLabel = v => (ES.find(x => x[0] === v) || ES[0])[1];
 function mountContactEditor(container, id, isInline) {
   const c = id ? contactById(id) : {};
   dirty = false;
@@ -404,6 +414,8 @@ function mountContactEditor(container, id, isInline) {
     ${id ? contactLinks(c) : ''}
     <div class="grid">${f('first_name', 'First name')}${f('last_name', 'Last name')}${f('email', 'Email')}${f('phone', 'Phone')}${f('company', 'Company')}${f('source', 'Source')}</div>
     <label>Tags (comma-separated)<input id="f_tags" value="${esc((c.tags || []).join(', '))}"></label>
+    <label>Email status<select id="f_email_status">${ES.map(([v, l]) => `<option value="${v}" ${(c.email_status || 'none') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    ${c.consented_at ? `<p class="muted" style="font-size:12.5px;margin:-4px 0 8px">Consent recorded ${esc(new Date(c.consented_at).toLocaleString())}${c.consent_source ? ' via ' + esc(c.consent_source) : ''}.</p>` : ''}
     <div class="cf"><span class="cf-h">Custom fields</span><div id="cfRows">${Object.entries(c.custom_fields || {}).map(([k, v]) => cfRow(k, cfv(v))).join('')}</div><button type="button" class="ghost" id="cfAdd">+ Add field</button></div>
     <div class="row" style="margin-top:12px">
       <button class="pri" id="save">Save contact</button>
@@ -431,6 +443,14 @@ function mountContactEditor(container, id, isInline) {
       cf[k] = (k in orig && typeof orig[k] !== 'string' && v === cfv(orig[k])) ? orig[k] : v;
     }
     row.custom_fields = cf;
+    const st = $('#f_email_status', container).value, was = c.email_status || 'none';
+    if (st !== was) {
+      if (st !== 'none' && !row.email) return toast('Add an email address before setting an email status.');
+      if (st === 'subscribed' && !confirm('Mark this contact as subscribed? Only do this if they gave you permission to email them.')) return;
+      if (st === 'subscribed') { row.consented_at = new Date().toISOString(); row.consent_source = 'manual'; }
+      if (st === 'unsubscribed') row.unsubscribed_at = new Date().toISOString();
+    }
+    if (st !== was) row.email_status = st;   // only written when changed, so a stale editor cannot undo an unsubscribe
     const saved = await ok(id ? sb.from('contacts').update(row).eq('id', id).select() : sb.from('contacts').insert(row).select());
     if (!saved.length) return toast('Could not save. You may not have permission.');
     dirty = false; S.selectedContact = saved[0].id;
@@ -561,7 +581,7 @@ function rows() {
     $('span', th).textContent = on ? (S.sort.d > 0 ? ' ▲' : ' ▼') : '';
   });
   S.vis = list.map(c => c.id); const shown = list.slice(0, S.lim), left = list.length - shown.length;
-  $('#rows').innerHTML = shown.map(c => `<tr data-id="${c.id}" tabindex="0" class="${c.id === S.selectedContact ? 'selected' : ''}"><td class="selcol"><input type="checkbox" class="rsel" aria-label="Select contact" ${SEL.has(c.id) ? 'checked' : ''}></td><td><span class="who">${avatar(c)}<b>${esc(cname(c))}</b></span></td><td>${esc(c.email)}</td><td>${esc(c.phone)}</td><td>${esc(c.company)}</td>
+  $('#rows').innerHTML = shown.map(c => `<tr data-id="${c.id}" tabindex="0" class="${c.id === S.selectedContact ? 'selected' : ''}"><td class="selcol"><input type="checkbox" class="rsel" aria-label="Select contact" ${SEL.has(c.id) ? 'checked' : ''}></td><td><span class="who">${avatar(c)}<b>${esc(cname(c))}</b></span></td><td>${esc(c.email)}${BLOCKED.includes(c.email_status) ? ` <span class="pill" title="Will not be emailed">${esc(esLabel(c.email_status))}</span>` : ''}</td><td>${esc(c.phone)}</td><td>${esc(c.company)}</td>
     <td>${(c.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</td></tr>`).join('')
     || '<tr><td colspan="6" class="muted">No contacts match. Add one or import a CSV.</td></tr>';
   if (left > 0) {
@@ -825,16 +845,17 @@ async function importCSV(file) {
     <div class="imp-map">${IMP_FIELDS.map(([f, l]) => `<label>${l}${sel(f)}</label>`).join('')}</div>
     <div class="imp-prev" id="impPrev"></div>
     <label class="chk"><input type="checkbox" id="impUpd"> Update existing contacts with the same email (blank cells never overwrite)</label>
+    <label class="chk"><input type="checkbox" id="impConsent"> These people gave permission to receive email from me (I can show proof). Applies to new contacts with an email only.</label>
     <div class="row" style="margin-top:14px"><button class="pri" id="impGo">Import</button></div>`);
   const cur = () => { const m = {}; $$('.imp-map select').forEach(s => { if (s.value !== '') m[s.dataset.f] = +s.value; }); return m; };
   const prev = () => { const m = cur(); $('#impPrev').innerHTML = '<b>Preview</b><br>' + rows.slice(1, 4).map(r => { const c = mapRow(r, m); return esc([cname(c), c.email, c.phone, c.company].filter(Boolean).join(' · ')); }).join('<br>'); };
   $$('.imp-map select').forEach(s => s.onchange = prev); prev();
   $('#impGo').onclick = async () => {
     const m = cur(); if (!('email' in m) && !('phone' in m)) return toast('Map an Email or Phone column first.');
-    const upd = $('#impUpd').checked; closeModal(); await runImport(rows.slice(1), m, upd);
+    const upd = $('#impUpd').checked, consent = $('#impConsent').checked; closeModal(); await runImport(rows.slice(1), m, upd, consent);
   };
 }
-async function runImport(rows, m, upd) {
+async function runImport(rows, m, upd, consent) {
   const byEmail = new Map(S.contacts.filter(c => c.email).map(c => [c.email.toLowerCase(), c]));
   const seenP = new Set(S.contacts.filter(c => !c.email && c.phone).map(c => c.phone.replace(/\D/g, ''))), fileSeen = new Set();
   const out = [], ups = []; let dup = 0, empty = 0;
@@ -852,11 +873,12 @@ async function runImport(rows, m, upd) {
         if (Object.keys(p).length) ups.push([ex.id, p]); continue;
       }
     } else { const dp = c.phone.replace(/\D/g, ''); if (seenP.has(dp)) { dup++; continue; } seenP.add(dp); }
+    if (consent && c.email) { c.email_status = 'subscribed'; c.consented_at = new Date().toISOString(); c.consent_source = 'import'; }
     out.push(c);
   }
   let done = 0;
   try {
-    for (let i = 0; i < out.length; i += 500) { const part = out.slice(i, i + 500); await ok(sb.from('contacts').insert(part)); done += part.length; }
+    for (let i = 0; i < out.length; i += 500) { const part = out.slice(i, i + 500).map(c => ({ email_status: 'none', consented_at: null, consent_source: null, ...c })); await ok(sb.from('contacts').insert(part)); done += part.length; }
     for (let i = 0; i < ups.length; i += 20) await Promise.all(ups.slice(i, i + 20).map(([id, p]) => ok(sb.from('contacts').update(p).eq('id', id))));
   } catch { await load(); render(); return toast(`Import stopped after adding ${done} of ${out.length} rows. Fix the file and import again; rows already added are skipped as duplicates.`); }
   await load(); render();
@@ -864,7 +886,7 @@ async function runImport(rows, m, upd) {
 }
 function exportCSV(list) {
   list = Array.isArray(list) ? list : S.contacts;
-  const cols = ['first_name', 'last_name', 'email', 'phone', 'company', 'source', 'tags', 'custom_fields'];
+  const cols = ['first_name', 'last_name', 'email', 'phone', 'company', 'source', 'tags', 'custom_fields', 'email_status', 'consented_at'];
   const q = v => { let x = String(v ?? ''); if (/^[=+\-@\t\r]/.test(x) && !/^[+-]?[\d\s().-]+$/.test(x)) x = "'" + x; return '"' + x.replace(/"/g, '""') + '"'; }; // stops spreadsheet formula injection
   const val = (c, k) => k === 'tags' ? (c.tags || []).join(';') : k === 'custom_fields' ? JSON.stringify(c.custom_fields || {}) : c[k];
   const lines = [cols.join(',')].concat(list.map(c => cols.map(k => q(val(c, k))).join(',')));

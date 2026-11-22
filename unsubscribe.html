@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Unsubscribe</title>
+<style>
+:root{--brand:#4b3fd6;--accent:var(--brand);--on:#fff;--bg:#f4f3fc;--card:#fff;--ink:#1a1840;--mut:#5b5a7d;--line:#dcd9f0}
+@media(prefers-color-scheme:dark){:root{--accent:color-mix(in srgb,var(--brand) 62%,#fff);--on:#13112b;--bg:#110f26;--card:#1b183a;--ink:#ecebfa;--mut:#9e9cc8;--line:#2d2959}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;color:var(--ink);font:400 15px/1.5 system-ui,sans-serif;background:var(--bg)}
+#card{width:100%;max-width:460px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px}
+h1{font-size:1.4rem;margin:0 0 8px}p{color:var(--mut);margin:0 0 16px}
+button{width:100%;padding:12px 16px;border:0;border-radius:10px;background:var(--accent);color:var(--on);font:600 15px system-ui,sans-serif;cursor:pointer}
+button:disabled{opacity:.6;cursor:wait}
+</style>
+</head>
+<body>
+<main id="card"><p>Loading…</p></main>
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+/* Public unsubscribe page. Needs no login: it calls one database function with the token from the email link.
+   A button (not auto-unsubscribe on load) so email security scanners that open links cannot unsubscribe people by accident. */
+const C = window.CRM_CONFIG, sb = supabase.createClient(C.supabaseUrl, C.supabaseAnonKey);
+const token = new URLSearchParams(location.search).get('t') || '';
+const card = document.getElementById('card');
+document.documentElement.style.setProperty('--brand', C.accent);
+document.title = 'Unsubscribe · ' + C.businessName;
+const say = h => card.innerHTML = h;
+if (!token) say('<h1>Link not valid</h1><p>This unsubscribe link is missing its code. Please use the link from the email.</p>');
+else {
+  say('<h1>Unsubscribe from emails?</h1><p>You will stop receiving emails from ' + C.businessName.replace(/[&<>"']/g, '') + '.</p><button id="go">Unsubscribe</button>');
+  document.getElementById('go').onclick = async e => {
+    const b = e.target; b.disabled = true; b.textContent = 'Working…';
+    let res; try { const { data, error } = await sb.rpc('unsubscribe_contact', { p_token: token }); res = error ? { ok: false } : data; } catch (x) { res = { ok: false }; }
+    if (res && res.ok) say('<h1>You are unsubscribed</h1><p>You will not receive any more emails from us.</p>');
+    else { b.disabled = false; b.textContent = 'Unsubscribe'; card.insertAdjacentHTML('beforeend', '<p>Something went wrong. Please try again.</p>'); }
+  };
+}
+</script>
+</body>
+</html>
