@@ -2,6 +2,7 @@
 window.CRM_CONFIG = {
   businessName: "Loomwell Ops",
   accent: "#4b3fd6",
+  bookingUrl: "https://calendly.com/loomwellops/30min", // Book a call screen (must be a calendly.com link)
   currency: "USD", // ISO code shown on deal values, e.g. "SGD", "PHP", "EUR"
   locale: "en-US", // number formatting, e.g. "en-SG", "en-PH"
   supabaseUrl: "https://daxftvwilzdtkxcsbtxz.supabase.co",
