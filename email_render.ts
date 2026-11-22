@@ -68,7 +68,7 @@ export function sanitizeHtml(src: string): string {
     if (name === "a") {
       const h = /\shref\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(attrs);
       const url = ((h && (h[1] ?? h[2])) ?? "").trim();
-      if (!/^(https?:\/\/|mailto:)[^\s"'<>`\u0000-\u001f]+$/i.test(url)) continue; // bad or missing link: drop the tag, keep the text
+      if (!/^(https?:\/\/|mailto:)[^\s"'<>`\x00-\x1f]+$/i.test(url)) continue; // bad or missing link: drop the tag, keep the text
       out += `<a href="${url}" style="color:#2a5bd7">`;
     } else out += STYLE[name] ? `<${name} style="${STYLE[name]}">` : `<${name}>`;
     stack.push(name);
@@ -96,7 +96,8 @@ export function htmlToText(html: string): string {
   ).replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-const oneLine = (s: string) => s.replace(/[\r\n\u2028\u2029\u0000]+/g, " ").trim();
+const LS = new RegExp("[" + String.fromCharCode(0x2028, 0x2029) + "]+", "g");
+const oneLine = (s: string) => s.replace(/[\r\n\0]+/g, " ").replace(LS, " ").trim();
 
 export type Rendered = { ok: true; subject: string; html: string; text: string } | { ok: false; error: string };
 
