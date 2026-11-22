@@ -3,7 +3,6 @@
    Needs the Module 1 tables. Everything is inside one function, so it adds no globals. */
 (() => {
 const FT = ['text', 'email', 'tel', 'textarea', 'select', 'checkbox', 'consent'];
-// Own state, so this module never touches Module 1's data. Forms can target a stage in ANY pipeline.
 const FM = { forms: [], pipelines: [], stages: [], id: null, tab: 'builder' };
 const firstStage = () => { const p = FM.pipelines[0]; return FM.stages.filter(s => p && s.pipeline_id === p.id).sort((a, b) => a.position - b.position)[0] || {}; };
 const stageOptions = sel => FM.pipelines.map(p => { const o = FM.stages.filter(s => s.pipeline_id === p.id).sort((a, b) => a.position - b.position).map(s => `<option value="${s.id}" ${s.id === sel ? 'selected' : ''}>${esc(s.name)}</option>`).join(''); return FM.pipelines.length > 1 ? `<optgroup label="${esc(p.name)}">${o}</optgroup>` : o; }).join('');
@@ -37,7 +36,6 @@ async function newForm() {
   FM.id = row[0].id; FM.tab = 'builder'; viewForms();
 }
 
-// ---- Builder: edits a working copy; typed values are read back from the DOM before any re-draw ----
 function readForm(d) {
   const o = { ...d };
   $$('#ftab [data-k]').forEach(el => { o[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value; });
@@ -96,7 +94,6 @@ async function saveForm(f, o) {
   await viewForms(); toast('Form saved', true);
 }
 
-// ---- Share: link and embed code ----
 async function copy(t) {
   try { await navigator.clipboard.writeText(t); toast('Copied', true); }
   catch (e) {
@@ -116,7 +113,6 @@ function tabShare(f) {
   $$('[data-c]').forEach(b => b.onclick = () => copy($('#' + b.dataset.c).textContent));
 }
 
-// ---- Log: every outcome, including spam and rate-limited attempts ----
 async function tabLog(f) {
   const rows = await ok(sb.from('form_submissions').select('*').eq('form_id', f.id).order('created_at', { ascending: false }).limit(100));
   $('#ftab').innerHTML = `<div class="wrap"><table><thead><tr><th>When</th><th>Outcome</th><th>Lead</th><th></th></tr></thead><tbody>${rows.map(r => {
@@ -127,7 +123,6 @@ async function tabLog(f) {
   $$('tr[data-cid]').forEach(r => { if (r.dataset.cid) { r.style.cursor = 'pointer'; r.onclick = () => openContact(r.dataset.cid); } });
 }
 
-// ---- Timeline card for a form submission (used by the contact panel) ----
 function formCard(a) {
   const d = a.data || {};
   return `<div class="fcard"><div class="fh"><span class="badge">Form · ${esc(d.form_name)}</span><small>${new Date(a.created_at).toLocaleString()}</small></div>
@@ -136,21 +131,18 @@ function formCard(a) {
     ${Object.entries(d.utm || {}).map(([k, v]) => `<span class="pill">${esc(k)}=${esc(v)}</span>`).join('')}</div></div>`;
 }
 
-// ---- plug into Module 1 ----
 const ext = window.CRM_EXT;
 ext.views.forms = viewForms;
 ext.titles.forms = 'Lead Forms';
-ext.cards.form_submission = formCard;   // form answers show as a card on a contact's timeline
-// When duplicate contacts are merged, keep their form log entries attached to the surviving contact
+ext.cards.form_submission = formCard;
 ext.onMerge.push(async (keep, gone) => {
   const { error } = await sb.from('form_submissions').update({ contact_id: keep }).in('contact_id', gone);
   if (error && !/find the table|does not exist/i.test(error.message)) { toast(error.message); throw error; }
 });
-// Add the rail button next to Contacts
 const nav = document.getElementById('railNav');
 if (nav && !nav.querySelector('[data-v="forms"]')) {
   const b = document.createElement('button');
-  b.type = 'button'; b.dataset.v = 'forms'; b.dataset.tip = 'Lead Forms'; b.setAttribute('aria-label', 'Lead Forms');
+  b.type = 'button'; b.dataset.v = 'forms'; b.dataset.tip = 'Lead Forms'; b.setAttribute('aria-label', 'Lead Forms'); b.style.setProperty('--ri', '2');
   b.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/></svg><span>Lead Forms</span>';
   const after = nav.querySelector('[data-v="contacts"]'); if (after) after.after(b); else nav.append(b);
 }

@@ -42,35 +42,45 @@ $('#themeBtn').onclick = e => {
   vt.ready.then(() => {
     document.documentElement.animate(
       { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${end}px at ${x}px ${y}px)`] },
-      { duration: 480, easing: 'cubic-bezier(.22,1,.36,1)', pseudoElement: '::view-transition-new(root)' }
+      { duration: 520, easing: 'cubic-bezier(.22,1,.36,1)', pseudoElement: '::view-transition-new(root)' }
     );
   });
 };
 
-// ---------- offset-safe rail pill ----------
+// ---------- cursor-following frosted glass rim spotlight ----------
+if (matchMedia('(hover: hover)').matches) {
+  $('#app').addEventListener('pointermove', e => {
+    const card = e.target.closest('.summary-bar, .settings-card, .colw');
+    if (!card) return;
+    const r = card.getBoundingClientRect();
+    card.style.setProperty('--mx', (e.clientX - r.left).toFixed(1) + 'px');
+    card.style.setProperty('--my', (e.clientY - r.top).toFixed(1) + 'px');
+  }, { passive: true });
+}
+
+// ---------- offset-safe liquid-elastic rail pill ----------
 let pillPos = null;
 function movePill(animate) {
   const a = $('#railNav button.on'), p = $('#railPill'); if (!a || !p) return;
   const x = a.offsetLeft, y = a.offsetTop, w = a.offsetWidth, h = a.offsetHeight, from = pillPos;
-  pillPos = { x, y };
+  pillPos = { x, y, w };
   p.getAnimations().forEach(n => n.cancel());
   p.style.width = w + 'px'; p.style.height = h + 'px'; p.style.transform = `translate(${x}px, ${y}px)`;
   if (animate !== true || !from || (from.x === x && from.y === y) || matchMedia('(prefers-reduced-motion:reduce)').matches) return;
-  // leading edge races ahead (0.22s), trailing edge springs in (0.36s)
   const vert = Math.abs(y - from.y) >= Math.abs(x - from.x), sx = Math.min(x, from.x), sy = Math.min(y, from.y);
-  const sw = vert ? w : w + Math.abs(x - from.x), sh = vert ? h + Math.abs(y - from.y) : h;
+  const sw = vert ? w : Math.max(x + w, from.x + (from.w || w)) - sx, sh = vert ? h + Math.abs(y - from.y) : h;
   p.animate([
-    { transform: `translate(${from.x}px, ${from.y}px)`, width: w + 'px', height: h + 'px', easing: 'cubic-bezier(.2,.9,.3,1)' },
-    { transform: `translate(${sx}px, ${sy}px)`, width: sw + 'px', height: sh + 'px', offset: .38, easing: 'cubic-bezier(.34,1.45,.64,1)' },
-    { transform: `translate(${x}px, ${y}px)`, width: w + 'px', height: h + 'px' }
-  ], { duration: 580 });
+    { transform: `translate(${from.x}px, ${from.y}px)`, width: (from.w || w) + 'px', height: h + 'px', boxShadow: '0 8px 24px rgba(75,63,214,.55)', easing: 'cubic-bezier(.2,.9,.3,1)' },
+    { transform: `translate(${sx}px, ${sy}px)`, width: sw + 'px', height: sh + 'px', boxShadow: '0 10px 32px rgba(194,78,23,.65), 0 0 24px rgba(156,147,255,.7)', offset: .38, easing: 'cubic-bezier(.34,1.45,.64,1)' },
+    { transform: `translate(${x}px, ${y}px)`, width: w + 'px', height: h + 'px', boxShadow: '0 8px 24px rgba(75,63,214,.55)' }
+  ], { duration: 600 });
 }
 window.addEventListener('resize', movePill);
 
 // ---------- collapsible rail (desktop) ----------
 const reduced = () => matchMedia('(prefers-reduced-motion:reduce)').matches;
 let tagPos = null;
-function moveTagPill(animate) { // same leading/trailing-edge stretch as the rail pill
+function moveTagPill(animate) {
   const a = $('.tag-pill.on'), p = $('#tagPill'); if (!a || !p) return;
   const x = a.offsetLeft, y = a.offsetTop, w = a.offsetWidth, h = a.offsetHeight, from = tagPos;
   tagPos = { x, y, w };
@@ -83,7 +93,7 @@ function moveTagPill(animate) { // same leading/trailing-edge stretch as the rai
     { transform: `translate(${from.x}px, ${y}px)`, width: from.w + 'px', easing: 'cubic-bezier(.2,.9,.3,1)' },
     { transform: `translate(${sx}px, ${y}px)`, width: sw + 'px', offset: .38, easing: 'cubic-bezier(.34,1.45,.64,1)' },
     { transform: `translate(${x}px, ${y}px)`, width: w + 'px' }
-  ], { duration: 440 });
+  ], { duration: 460 });
 }
 window.addEventListener('resize', () => moveTagPill());
 function setRail(open, persist) {
@@ -92,19 +102,18 @@ function setRail(open, persist) {
   t.setAttribute('aria-expanded', open); t.setAttribute('aria-label', open ? 'Collapse sidebar' : 'Expand sidebar'); t.dataset.tip = open ? 'Collapse' : 'Expand';
   if (!persist) return;
   try { localStorage.setItem('crm-rail', open ? '1' : '0'); } catch {}
-  const t0 = performance.now(); // keep the pill wrapped around the button while the column animates
-  (function f() { movePill(); moveTagPill(); if (performance.now() - t0 < 380) requestAnimationFrame(f); })();
+  const t0 = performance.now();
+  (function f() { movePill(); moveTagPill(); if (performance.now() - t0 < 400) requestAnimationFrame(f); })();
 }
 try { if (localStorage.getItem('crm-rail') === '1') setRail(true, false); } catch {}
 $('#railToggle').onclick = () => setRail(!$('#app').classList.contains('rail-open'), true);
 
 // ---------- helpers ----------
 let tt;
-function toast(msg, good) { // FR-12: every failure is visible
+function toast(msg, good) {
   const t = $('#toast'); t.textContent = msg; t.className = 'show' + (good ? ' good' : '');
   clearTimeout(tt); tt = setTimeout(() => t.className = '', 5000);
 }
-// Tracks in-flight requests: blocks double-clicks while saving and shows a progress cursor
 function track(p) { pending++; document.body.classList.add('busy'); return Promise.resolve(p).finally(() => { if (!--pending) document.body.classList.remove('busy'); }); }
 document.addEventListener('click', e => { if (pending && e.target.closest('button, .btn, .card, tbody tr')) { e.preventDefault(); e.stopPropagation(); } }, true);
 window.addEventListener('unhandledrejection', e => { e.preventDefault(); if (!(e.reason && e.reason.shown)) toast('Something went wrong. Please try again.'); console.error(e.reason); });
@@ -122,10 +131,14 @@ async function fetchAll(table, order) {
 }
 const cname = c => c ? ([c.first_name, c.last_name].filter(Boolean).join(' ') || c.email || c.phone || 'Unnamed') : 'Unknown';
 const PAL = [['#c9c2ff', '#2b2570'], ['#ffc9b5', '#6b2a10'], ['#f3e0a6', '#5a4300'], ['#b7ecd2', '#0f4a31'], ['#c7e0ff', '#17406e']];
+function avatarPalette(c) {
+  const n = cname(c);
+  let h = 0; for (const ch of String((c && c.id) || n)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return PAL[h % PAL.length];
+}
 function avatar(c) {
   const n = cname(c), ini = (n.match(/[A-Za-z0-9]/g) && n.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase()) || '?';
-  let h = 0; for (const ch of String((c && c.id) || n)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  const [bg, fg] = PAL[h % PAL.length];
+  const [bg, fg] = avatarPalette(c);
   return `<span class="av" style="background:${bg};color:${fg}" aria-hidden="true">${esc(ini)}</span>`;
 }
 const contactById = id => S.contacts.find(c => c.id === id);
@@ -133,8 +146,41 @@ const stageName = id => (S.stages.find(s => s.id === id) || {}).name || '';
 const statusFor = n => { n = (n || '').trim().toLowerCase(); return n === 'won' || n === 'lost' ? n : 'open'; };
 const isDesktopSplit = () => window.innerWidth > 1060;
 
+// ---------- KPI count-up animation ----------
+function animateKPIs() {
+  if (reduced()) return;
+  $$('#view .summary-bar .kpi b[data-val]').forEach(el => {
+    const target = Number(el.dataset.val);
+    const kind = el.dataset.kind || 'num';
+    if (!Number.isFinite(target) || target === 0) return;
+    const t0 = performance.now(), dur = 380;
+    (function step(now) {
+      const p = Math.min(1, (now - t0) / dur);
+      const ease = 1 - Math.pow(1 - p, 3);
+      const cur = target * ease;
+      el.textContent = kind === 'money' ? money(cur) : kind === 'pct' ? Math.round(cur) + '%' : String(Math.round(cur));
+      if (p < 1) requestAnimationFrame(step);
+    })(t0);
+  });
+}
 
-// ---------- undo toast: the real delete only runs after 6s ----------
+// ---------- 24-tick radial Win Rate gauge ----------
+function winGauge(closedCount, wonCount) {
+  const ticks = 24;
+  const active = closedCount ? Math.round((wonCount / closedCount) * ticks) : 0;
+  let lines = '';
+  for (let i = 0; i < ticks; i++) {
+    const deg = -180 + (i / (ticks - 1)) * 180;
+    const rad = deg * Math.PI / 180;
+    const c = Math.cos(rad), s = Math.sin(rad);
+    const x1 = (32 + 21 * c).toFixed(2), y1 = (32 + 21 * s).toFixed(2);
+    const x2 = (32 + 28 * c).toFixed(2), y2 = (32 + 28 * s).toFixed(2);
+    lines += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke-width="2.2" stroke-linecap="round"${i < active ? ` class="on" style="--t:${i}"` : ''}/>`;
+  }
+  return `<svg viewBox="0 0 64 36" class="win-dial" aria-hidden="true">${lines}</svg>`;
+}
+
+// ---------- undo toast ----------
 let undoT, undoFn = null;
 async function flushUndo() { clearTimeout(undoT); const f = undoFn; undoFn = null; if (!f) return; $('#toast').className = ''; try { await f(); } catch { await load(); render(); } }
 function undoable(msg, commit, revert) {
@@ -185,7 +231,7 @@ document.addEventListener('keydown', e => {
   if (e.key.toLowerCase() === 'n' && !e.ctrlKey && !e.metaKey && !e.altKey && $('#modal').hidden && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) { e.preventDefault(); openContact(null); }
 });
 
-// ---------- reports (computed from data already loaded) ----------
+// ---------- reports ----------
 function viewReports() {
   $('#viewActions').innerHTML = '<button id="rprint">Print / Save PDF</button>';
   const sum = a => a.reduce((x, d) => x + Number(d.value || 0), 0);
@@ -200,8 +246,13 @@ function viewReports() {
   S.deals.forEach(d => { const c = contactById(d.contact_id), s = bump((c && c.source) || 'Unknown'); if (d.status === 'won') { s.w++; s.c++; } else if (d.status === 'lost') s.c++; });
   const bySrc = Object.entries(src).sort((x, y) => y[1].n - x[1].n).slice(0, 8).map(([k, s]) => ({ l: k, v: s.c ? s.w / s.c * 100 : 0, t: (s.c ? `${s.w}/${s.c} won (${Math.round(s.w / s.c * 100)}%)` : 'no closed deals') + ` · ${s.n} lead${s.n === 1 ? '' : 's'}` }));
   const withDeals = new Set(S.deals.map(d => d.contact_id)).size, wonC = new Set(won.map(d => d.contact_id)).size;
-  const kpi = (l, v, s) => `<div class="kpi"><span>${l}</span><b>${v}</b><small>${s}</small></div>`;
-  $('#view').innerHTML = `<div class="summary-bar">${kpi('Open Pipeline', money(sum(open)), open.length + ' open deal(s)')}${kpi('Won Revenue', money(sum(won)), won.length + ' closed won')}${kpi('Win Rate', closed ? rate + '%' : '—', closed + ' closed total')}${kpi('New Leads (7 days)', S.contacts.filter(c => Date.now() - new Date(c.created_at) < 6048e5).length, S.contacts.length + ' contacts total')}</div>
+  const openVal = sum(open), wonVal = sum(won), leads7d = S.contacts.filter(c => Date.now() - new Date(c.created_at) < 6048e5).length;
+  $('#view').innerHTML = `<div class="summary-bar">
+      <div class="kpi gold"><span>Open Pipeline</span><b data-val="${openVal}" data-kind="money">${money(openVal)}</b><small>${open.length} open deal(s)</small></div>
+      <div class="kpi won"><span>Won Revenue</span><b data-val="${wonVal}" data-kind="money">${money(wonVal)}</b><small>${won.length} closed won</small></div>
+      <div class="kpi"><div class="kpi-win-wrap"><div><span>Win Rate</span><b${closed ? ` data-val="${rate}" data-kind="pct"` : ''}>${closed ? rate + '%' : '—'}</b></div>${winGauge(closed, won.length)}</div><small>${closed} closed total</small></div>
+      <div class="kpi"><span>New Leads (7 days)</span><b data-val="${leads7d}" data-kind="num">${leads7d}</b><small>${S.contacts.length} contacts total</small></div>
+    </div>
     <div class="rp-grid">
       <section class="settings-card"><h2>Pipeline value by stage</h2>${bars(S.stages.map(s => { const v = sum(S.deals.filter(d => d.stage_id === s.id)); return { l: s.name, v, t: money(v) }; }))}</section>
       <section class="settings-card"><h2>Lead-to-won funnel</h2>${bars([{ l: 'Contacts', v: S.contacts.length, t: String(S.contacts.length) }, { l: 'With a deal', v: withDeals, t: String(withDeals) }, { l: 'Won', v: wonC, t: String(wonC) }])}</section>
@@ -263,7 +314,7 @@ function openDupes() {
     const row = {}; for (const k of ['first_name', 'last_name', 'email', 'phone', 'company', 'source']) if (!p[k]) { const o = others.find(x => x[k]); if (o) row[k] = o[k]; }
     row.tags = [...new Set([p, ...others].flatMap(c => c.tags || []))];
     row.custom_fields = Object.assign({}, ...others.map(c => c.custom_fields || {}).reverse(), p.custom_fields || {});
-    { // email status: never lose an unsubscribe. Blocked beats subscribed beats none.
+    {
       const all = [p, ...others], blocked = all.find(c => BLOCKED.includes(c.email_status)), sub = all.find(c => c.email_status === 'subscribed');
       const win = blocked || sub;
       if (win && win.email_status !== p.email_status) { row.email_status = win.email_status; row.unsubscribed_at = win.unsubscribed_at; row.consented_at = win.consented_at; row.consent_source = win.consent_source; }
@@ -345,7 +396,7 @@ async function load() {
   if (S.selectedContact && !contactById(S.selectedContact)) S.selectedContact = null;
 }
 
-$('#railNav').addEventListener('click', e => { const b = e.target.closest('button[data-v]'); if (!b) return; if (dirty && !confirm('Discard unsaved changes?')) return; dirty = false; S.view = b.dataset.v; render(true); });   // delegated, so add-on modules can add nav buttons
+$('#railNav').addEventListener('click', e => { const b = e.target.closest('button[data-v]'); if (!b) return; if (dirty && !confirm('Discard unsaved changes?')) return; dirty = false; S.view = b.dataset.v; render(true); });
 let enterT;
 function startEnter() { const v = $('#view'); clearTimeout(enterT); v.classList.remove('enter'); void v.offsetWidth; v.classList.add('enter'); enterT = setTimeout(() => v.classList.remove('enter'), 1000); }
 function indexStagger() { ['.colw', '.card', '#rows tr', '.rp-row'].forEach(s => $$(s, $('#view')).forEach((el, i) => el.style.setProperty('--i', Math.min(i, 12)))); }
@@ -357,7 +408,7 @@ function render(nav) {
   $('#viewTitle').textContent = titles[S.view] || '';
   $('#viewActions').innerHTML = '';
   ({ contacts: viewContacts, pipeline: viewBoard, reports: viewReports, settings: viewSettings, ...EXT.views })[S.view]();
-  if (nav === true) indexStagger();
+  if (nav === true) { indexStagger(); animateKPIs(); }
 }
 
 // ---------- modal & slide-over drawer ----------
@@ -385,7 +436,7 @@ document.addEventListener('keydown', e => {
   else if (!e.shiftKey && (document.activeElement === z || out)) { e.preventDefault(); a.focus(); }
 });
 
-// ---------- shared contact inspector (works in split-pane OR modal drawer) ----------
+// ---------- shared contact inspector (atmospheric avatar-tinted header banner) ----------
 const cfv = v => typeof v === 'string' ? v : JSON.stringify(v);
 const cfRow = (k = '', v = '') => `<div class="cf-row"><input class="cf-k" placeholder="Field" aria-label="Field name" value="${esc(k)}"><input class="cf-v" placeholder="Value" aria-label="Field value" value="${esc(v)}"><button type="button" class="ghost cf-x" aria-label="Remove field">×</button></div>`;
 function contactLinks(c) {
@@ -397,7 +448,6 @@ function contactLinks(c) {
   }
   return out.length ? `<div class="row c-links">${out.join('')}</div>` : '';
 }
-// ---------- email consent (Module 3a) ----------
 const ES = [['none', 'Never opted in'], ['subscribed', 'Subscribed'], ['unsubscribed', 'Unsubscribed'], ['bounced', 'Bounced'], ['complained', 'Complained']];
 const BLOCKED = ['unsubscribed', 'bounced', 'complained'];
 const esLabel = v => (ES.find(x => x[0] === v) || ES[0])[1];
@@ -406,9 +456,17 @@ function mountContactEditor(container, id, isInline) {
   dirty = false;
   container.oninput = () => { dirty = $$('input,textarea', container).some(el => el.value !== el.defaultValue); };
   const f = (k, label) => `<label>${label}<input id="f_${k}" value="${esc(c[k])}"></label>`;
+  const [chBg] = avatarPalette(c);
+  const subParts = [c.company, c.source].filter(Boolean).join(' · ');
   container.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
-      <h2 style="margin:0">${id ? esc(cname(c)) : 'New contact'}</h2>
+    <div class="contact-hero-head" style="--ch-bg:${chBg};${!isInline ? 'padding-right:48px' : ''}">
+      <div class="contact-hero-id">
+        ${id ? avatar(c) : ''}
+        <div style="min-width:0">
+          <h2>${id ? esc(cname(c)) : 'New contact'}</h2>
+          ${id && subParts ? `<div class="contact-hero-sub">${esc(subParts)}</div>` : ''}
+        </div>
+      </div>
       ${id ? `<button type="button" class="ghost" id="quickDeal">+ Deal</button>` : ''}
     </div>
     ${id ? contactLinks(c) : ''}
@@ -450,7 +508,7 @@ function mountContactEditor(container, id, isInline) {
       if (st === 'subscribed') { row.consented_at = new Date().toISOString(); row.consent_source = 'manual'; }
       if (st === 'unsubscribed') row.unsubscribed_at = new Date().toISOString();
     }
-    if (st !== was) row.email_status = st;   // only written when changed, so a stale editor cannot undo an unsubscribe
+    if (st !== was) row.email_status = st;
     const saved = await ok(id ? sb.from('contacts').update(row).eq('id', id).select() : sb.from('contacts').insert(row).select());
     if (!saved.length) return toast('Could not save. You may not have permission.');
     dirty = false; S.selectedContact = saved[0].id;
@@ -459,7 +517,7 @@ function mountContactEditor(container, id, isInline) {
     if (i >= 0) S.contacts[i] = saved[0]; else S.contacts.unshift(saved[0]);
     toast('Contact saved', true);
     if (!id) { if (!isInline) closeModal(); render(); if (!isInline) openContact(saved[0].id); return; }
-    render(); // refreshes list, KPIs and tags (behind the drawer when in modal mode)
+    render();
     if (isInline) { const n = $('#note', $('#contactPane')); if (n && draft) n.value = draft; }
     else { const h = $('h2', container); if (h) h.textContent = cname(saved[0]); }
   };
@@ -526,10 +584,10 @@ function viewContacts() {
 
   $('#view').innerHTML = `
     <div class="summary-bar">
-      <div class="kpi gold"><span>Total Contacts</span><b>${S.contacts.length}</b><small>Stored in Supabase</small></div>
-      <div class="kpi won"><span>With Active/Past Deals</span><b>${withDeals}</b><small>${S.contacts.length ? Math.round((withDeals / S.contacts.length) * 100) : 0}% of database</small></div>
-      <div class="kpi"><span>Unique Tags</span><b>${tags.length}</b><small>Click below to filter</small></div>
-      <div class="kpi"><span>Lead Sources</span><b>${sources}</b><small>Tracked channels</small></div>
+      <div class="kpi gold"><span>Total Contacts</span><b data-val="${S.contacts.length}" data-kind="num">${S.contacts.length}</b><small>Stored in Supabase</small></div>
+      <div class="kpi won"><span>With Active/Past Deals</span><b data-val="${withDeals}" data-kind="num">${withDeals}</b><small>${S.contacts.length ? Math.round((withDeals / S.contacts.length) * 100) : 0}% of database</small></div>
+      <div class="kpi"><span>Unique Tags</span><b data-val="${tags.length}" data-kind="num">${tags.length}</b><small>Click below to filter</small></div>
+      <div class="kpi"><span>Lead Sources</span><b data-val="${sources}" data-kind="num">${sources}</b><small>Tracked channels</small></div>
     </div>
     <div class="contacts-shell">
       <div class="contacts-main">
@@ -606,15 +664,16 @@ function viewBoard() {
   const wonVal = wonDeals.reduce((a, d) => a + Number(d.value || 0), 0);
   const liveTotal = S.stages.filter(s => statusFor(s.name) !== 'lost').reduce((a, s) => a + S.deals.filter(d => d.stage_id === s.id).reduce((x, d) => x + Number(d.value || 0), 0), 0);
   const valued = openDeals.filter(d => Number(d.value) > 0), topId = valued.length > 1 ? valued.reduce((m, d) => Number(d.value) > Number(m.value) ? d : m).id : null;
-  const winRate = closedCount ? Math.round((wonDeals.length / closedCount) * 100) + '%' : '—';
+  const rateNum = closedCount ? Math.round((wonDeals.length / closedCount) * 100) : 0;
+  const winRate = closedCount ? rateNum + '%' : '—';
 
   $('#viewActions').innerHTML = `${S.pipelines.length > 1 ? `<select id="pipeSel" aria-label="Pipeline">${S.pipelines.map(p => `<option value="${p.id}" ${p.id === S.pipeline.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>` : ''}<button class="pri" id="adddeal">+ Add deal</button>`;
   $('#view').innerHTML = `
     <div class="summary-bar">
-      <div class="kpi gold"><span>Active Pipeline</span><b>${money(openVal)}</b><small>${openDeals.length} open deal(s)</small></div>
-      <div class="kpi won"><span>Won Revenue</span><b>${money(wonVal)}</b><small>${wonDeals.length} closed won</small></div>
-      <div class="kpi"><span>Win Rate</span><b>${winRate}</b><small>${closedCount} closed total</small></div>
-      <div class="kpi"><span>Total Contacts</span><b>${S.contacts.length}</b><small>${S.stages.length} pipeline stages</small></div>
+      <div class="kpi gold"><span>Active Pipeline</span><b data-val="${openVal}" data-kind="money">${money(openVal)}</b><small>${openDeals.length} open deal(s)</small></div>
+      <div class="kpi won"><span>Won Revenue</span><b data-val="${wonVal}" data-kind="money">${money(wonVal)}</b><small>${wonDeals.length} closed won</small></div>
+      <div class="kpi"><div class="kpi-win-wrap"><div><span>Win Rate</span><b${closedCount ? ` data-val="${rateNum}" data-kind="pct"` : ''}>${winRate}</b></div>${winGauge(closedCount, wonDeals.length)}</div><small>${closedCount} closed total</small></div>
+      <div class="kpi"><span>Total Contacts</span><b data-val="${S.contacts.length}" data-kind="num">${S.contacts.length}</b><small>${S.stages.length} pipeline stages</small></div>
     </div>
     <div class="pf"><input id="pfq" type="search" placeholder="Filter deals by title or contact…" aria-label="Filter deals" value="${esc(PF.q)}"><select id="pfs" aria-label="Status"><option value="">All statuses</option>${['open', 'won', 'lost'].map(x => `<option value="${x}" ${PF.st === x ? 'selected' : ''}>${x[0].toUpperCase() + x.slice(1)}</option>`).join('')}</select><input id="pfm" type="number" min="0" placeholder="Min value" aria-label="Minimum value" value="${esc(PF.min)}"></div>
     <div class="board">${S.stages.map(s => {
@@ -641,7 +700,15 @@ function viewBoard() {
     onMove: evt => { $$('.colw.drop-hover').forEach(x => x.classList.remove('drop-hover')); const w = evt.to.closest('.colw'); if (w) w.classList.add('drop-hover'); },
     onEnd: evt => { $$('.colw.drop-hover').forEach(x => x.classList.remove('drop-hover')); onDrop(evt); }
   }));
-  if (lastDroppedId) { const el = $(`.card[data-id="${lastDroppedId}"]`); lastDroppedId = null; if (el) el.classList.add('landed'); }
+  if (lastDroppedId) {
+    const el = $(`.card[data-id="${lastDroppedId}"]`);
+    lastDroppedId = null;
+    if (el) {
+      el.classList.add('landed');
+      const colw = el.closest('.colw');
+      if (colw && colw.classList.contains('st-won')) colw.classList.add('won-celebrate');
+    }
+  }
 }
 let lastDroppedId = null;
 async function onDrop(evt) {
@@ -756,7 +823,7 @@ function viewSettings() {
       const before = statusFor(s.name), after = statusFor(name);
       await ok(sb.from('stages').update({ name }).eq('id', s.id));
       let fixed = 0;
-      if (before !== after) { // keep deal status in sync when a stage becomes (or stops being) Won/Lost
+      if (before !== after) {
         const stale = S.deals.filter(d => d.stage_id === s.id && d.status !== after);
         if (stale.length) { await ok(sb.from('deals').update({ status: after }).eq('stage_id', s.id)); stale.forEach(d => d.status = after); fixed = stale.length; }
       }
@@ -772,7 +839,7 @@ function viewSettings() {
       } else {
         const k = i + (a === 'up' ? -1 : 1), arr = S.stages.slice();
         [arr[i], arr[k]] = [arr[k], arr[i]];
-        await ok(sb.from('stages').upsert(arr.map((x, p) => ({ ...x, position: p })))); // one request, so the order can't half-update
+        await ok(sb.from('stages').upsert(arr.map((x, p) => ({ ...x, position: p }))));
       }
       await load(); render();
     };
@@ -887,7 +954,7 @@ async function runImport(rows, m, upd, consent) {
 function exportCSV(list) {
   list = Array.isArray(list) ? list : S.contacts;
   const cols = ['first_name', 'last_name', 'email', 'phone', 'company', 'source', 'tags', 'custom_fields', 'email_status', 'consented_at'];
-  const q = v => { let x = String(v ?? ''); if (/^[=+\-@\t\r]/.test(x) && !/^[+-]?[\d\s().-]+$/.test(x)) x = "'" + x; return '"' + x.replace(/"/g, '""') + '"'; }; // stops spreadsheet formula injection
+  const q = v => { let x = String(v ?? ''); if (/^[=+\-@\t\r]/.test(x) && !/^[+-]?[\d\s().-]+$/.test(x)) x = "'" + x; return '"' + x.replace(/"/g, '""') + '"'; };
   const val = (c, k) => k === 'tags' ? (c.tags || []).join(';') : k === 'custom_fields' ? JSON.stringify(c.custom_fields || {}) : c[k];
   const lines = [cols.join(',')].concat(list.map(c => cols.map(k => q(val(c, k))).join(',')));
   const a = document.createElement('a');

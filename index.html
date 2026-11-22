@@ -21,10 +21,12 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
-<link rel="stylesheet" href="mod-forms.css"><!-- Module 2: lead forms. Remove this line and the mod-forms.js line to leave it out -->
+<link rel="stylesheet" href="mod-forms.css">
 </head>
 <body>
 <div class="bg" aria-hidden="true"></div>
+<div class="aurora-orb orb-1" aria-hidden="true"></div>
+<div class="aurora-orb orb-2" aria-hidden="true"></div>
 
 <!-- FR-1: VERSO Split-Card Login -->
 <div id="login" hidden>
@@ -58,33 +60,33 @@
     <div class="rail-brand" id="brandMark" title="CRM">LO</div>
     <nav id="railNav">
       <div id="railPill" aria-hidden="true"></div>
-      <button type="button" data-v="pipeline" data-tip="Pipeline" aria-label="Pipeline">
+      <button type="button" data-v="pipeline" data-tip="Pipeline" aria-label="Pipeline" style="--ri:0">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="14" rx="1.5"/></svg>
         <span>Pipeline</span>
       </button>
-      <button type="button" data-v="contacts" data-tip="Contacts" aria-label="Contacts">
+      <button type="button" data-v="contacts" data-tip="Contacts" aria-label="Contacts" style="--ri:1">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         <span>Contacts</span>
       </button>
-      <button type="button" data-v="reports" data-tip="Reports" aria-label="Reports">
+      <button type="button" data-v="reports" data-tip="Reports" aria-label="Reports" style="--ri:3">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
         <span>Reports</span>
       </button>
-      <button type="button" data-v="settings" data-tip="Settings" aria-label="Stage Settings">
+      <button type="button" data-v="settings" data-tip="Settings" aria-label="Stage Settings" style="--ri:4">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         <span>Settings</span>
       </button>
     </nav>
     <div class="rail-foot">
-      <button type="button" id="railToggle" data-tip="Expand" aria-label="Expand sidebar" aria-expanded="false">
+      <button type="button" id="railToggle" data-tip="Expand" aria-label="Expand sidebar" aria-expanded="false" style="--ri:5">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
         <span>Collapse</span>
       </button>
-      <button type="button" id="themeBtn" data-tip="Theme" aria-label="Toggle theme">
+      <button type="button" id="themeBtn" data-tip="Theme" aria-label="Toggle theme" style="--ri:6">
         <svg id="themeIcon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         <span>Theme</span>
       </button>
-      <button type="button" id="logout" data-tip="Log out" aria-label="Log out">
+      <button type="button" id="logout" data-tip="Log out" aria-label="Log out" style="--ri:7">
         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
         <span>Log out</span>
       </button>
@@ -112,8 +114,8 @@
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" integrity="sha384-BSxuMLxX+FCbTdYec3TbXlnMGEEM2QXTFdtDaveen71o+jswm2J36+xFqp8k4VHM" crossorigin="anonymous"></script>
 <script src="app.js"></script>
 <script src="mod-forms.js"></script>
-<script src="mod-email.js"></script><!-- Module 3a: email readiness. Remove this line and delete mod-email.js to leave it out -->
-<script src="mod-email-templates.js"></script><!-- Module 3b (phase B): email templates, merge fields, preview. Must come before mod-email-send.js. Remove this line to leave it out -->
-<script src="mod-email-send.js"></script><!-- Module 3a phase A: compose and send email from the contact panel. Remove this line to leave it out -->
+<script src="mod-email.js"></script>
+<script src="mod-email-templates.js"></script>
+<script src="mod-email-send.js"></script>
 </body>
 </html>

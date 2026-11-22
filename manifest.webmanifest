@@ -1,6 +1,6 @@
 {
-  "name": "CRM",
-  "short_name": "CRM",
+  "name": "Loomwell Ops CRM",
+  "short_name": "Loomwell CRM",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

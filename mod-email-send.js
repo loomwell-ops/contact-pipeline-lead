@@ -8,7 +8,6 @@
 (() => {
   const SENDING = 'Sending…';
 
-  // Timeline card for sent emails (only if another module has not already defined one)
   if (!EXT.cards.email) {
     EXT.cards.email = a => {
       const d = a.data || {}, bad = d.status === 'failed';
@@ -17,7 +16,6 @@
     };
   }
 
-  // Find which contact the clicked Email button belongs to
   function contactFor(a) {
     const mail = decodeURIComponent(a.getAttribute('href').replace(/^mailto:/i, '')).trim().toLowerCase();
     const sel = S.contacts.find(c => c.id === S.selectedContact);
@@ -25,13 +23,11 @@
     return S.contacts.find(c => (c.email || '').trim().toLowerCase() === mail) || null;
   }
 
-  // The function usually answers 200 with {ok:false,error}; a 401 comes back as an HTTP error, so read both
   async function errorText(error) {
     try { const j = await error.context.json(); if (j && j.error) return j.error; } catch {}
     return 'Could not reach the email service. Check your connection and try again.';
   }
 
-  // draft = { subject, body, kind, tplId } so the panel can be reopened after managing templates
   function compose(c, draft = {}) {
     const TPL = window.CRM_EMAIL_TPL;
     const blocked = BLOCKED.includes(c.email_status || 'none');
@@ -66,13 +62,11 @@
     $s.focus();
     $('#em_cancel').onclick = () => closeModal();
 
-    // ---- phase B: templates, merge fields, preview ----
     let tpls = [], tplId = draft.tplId || '', last = $b, guardOn = false;
     if (TPL) {
       const $tpl = $('#em_tpl'), $pv = $('#em_pv'), $pb = $('#em_prev');
       $s.addEventListener('focus', () => last = $s); $b.addEventListener('focus', () => last = $b);
 
-      // A marketing template cannot go to someone who has not subscribed
       const guard = () => {
         if (blocked) return;
         const t = tpls.find(x => x.id === tplId);
@@ -136,12 +130,11 @@
     $b.onkeydown = e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); send(); } };
   }
 
-  // Capture phase so we run before the browser follows the mailto: link
   document.addEventListener('click', e => {
     const a = e.target.closest && e.target.closest('.c-links a[href^="mailto:"]');
     if (!a) return;
     let c; try { c = contactFor(a); } catch { c = null; }
-    if (!c || !c.email) return; // unknown contact: let the normal mailto: link work
+    if (!c || !c.email) return;
     e.preventDefault(); e.stopPropagation();
     compose(c);
   }, true);

@@ -5,7 +5,6 @@
    To leave it out, remove its <script> line from index.html. Compose then works as in phase A.
    Uses globals from app.js: sb, S, esc, $, $$, toast, modal, closeModal. */
 (() => {
-  // [field, label, fallback inserted with it]. null = no fallback needed (always present).
   const FIELDS = [
     ['first_name', 'First name', 'there'], ['last_name', 'Last name', ''], ['full_name', 'Full name', 'there'],
     ['company', 'Company', 'your company'], ['email', 'Email', null], ['phone', 'Phone', ''], ['sender_name', 'Your name (from settings)', null],
@@ -38,7 +37,6 @@
     el.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
-  // Ask send-email to merge and render without sending (preview: true). Nothing is logged or counted.
   async function preview(contactId, subject, body) {
     try {
       const { data, error } = await sb.functions.invoke('send-email', { body: { preview: true, contact_id: contactId, subject, body } });
@@ -53,7 +51,6 @@
   function showPreview(box, res) {
     box.hidden = false;
     if (!res || !res.ok) { box.innerHTML = `<p role="alert" style="margin:0;${bad}">${esc((res && res.error) || 'Could not build the preview.')}</p>`; return; }
-    // The server already cleaned this HTML. This second pass keeps only known tags and attributes.
     const tpl = document.createElement('template');
     tpl.innerHTML = res.html;
     tpl.content.querySelectorAll('*').forEach(n => {
@@ -67,7 +64,6 @@
     $$('a', pv).forEach(a => { a.removeAttribute('target'); a.onclick = e => e.preventDefault(); });
   }
 
-  // ---- template manager (list, create, edit, delete) ----
   function manage(opts = {}) {
     const done = () => { if (opts.onDone) opts.onDone(); else closeModal(); };
     const contacts = S.contacts.filter(c => c.email).slice(0, 200);

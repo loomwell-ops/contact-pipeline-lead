@@ -7,25 +7,28 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-:root{--brand:#4b3fd6;--accent:var(--brand);--on:#fff;--bg:#f4f3fc;--card:#fff;--ink:#1a1840;--mut:#5b5a7d;--line:#dcd9f0;--bad:#d94646}
-@media(prefers-color-scheme:dark){:root{--accent:color-mix(in srgb,var(--brand) 62%,#fff);--on:#13112b;--bg:#110f26;--card:#1b183a;--ink:#ecebfa;--mut:#9e9cc8;--line:#2d2959;--bad:#f87171}}
+:root{--brand:#4b3fd6;--accent:var(--brand);--g2:#c24e17;--on:#fff;--bg:#f6f5fd;--card:#fff;--ink:#1a1840;--mut:#5b5a7d;--line:#dedcf2;--bad:#d94646;--glow:rgba(75,63,214,.18)}
+@media(prefers-color-scheme:dark){:root{--accent:color-mix(in srgb,var(--brand) 62%,#fff);--g2:#ff9a76;--on:#13112b;--bg:#13112b;--card:#1d1a3f;--ink:#ecebfa;--mut:#a8a6cf;--line:#2f2b5e;--bad:#f87171;--glow:rgba(156,147,255,.32)}}
 *{box-sizing:border-box}[hidden]{display:none!important}
-body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;color:var(--ink);font:400 15px/1.5 "IBM Plex Sans",system-ui,sans-serif;background:radial-gradient(800px 380px at 85% -10%,color-mix(in srgb,var(--brand) 18%,transparent),transparent 65%),var(--bg)}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;color:var(--ink);font:400 15px/1.5 "IBM Plex Sans",system-ui,sans-serif;background:radial-gradient(900px 440px at 82% -8%,var(--glow),transparent 65%),radial-gradient(700px 380px at 12% 108%,color-mix(in srgb,var(--g2) 14%,transparent),transparent 65%),var(--bg)}
 body.embed{display:block;min-height:0;padding:4px;background:transparent}
-#card{width:100%;max-width:520px;margin:auto;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px}
-h1{font:700 1.5rem/1.15 "Bricolage Grotesque","IBM Plex Sans",sans-serif;margin:0 0 6px}
+#card{width:100%;max-width:520px;margin:auto;background:color-mix(in srgb,var(--card) 90%,transparent);backdrop-filter:blur(16px) saturate(145%);-webkit-backdrop-filter:blur(16px) saturate(145%);border:1px solid var(--line);border-top:3px solid var(--accent);border-radius:18px;padding:30px;box-shadow:0 24px 60px var(--glow),inset 0 1px 0 rgba(255,255,255,.22);animation:cardIn .36s cubic-bezier(.22,1,.36,1)}
+body.embed #card{box-shadow:none;border-top-width:1px}
+@keyframes cardIn{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
+h1{font:700 1.55rem/1.15 "Bricolage Grotesque","IBM Plex Sans",sans-serif;margin:0 0 6px}
 .desc{color:var(--mut);margin:0 0 18px}
 .fld{margin:0 0 14px}
 .fld>label{display:block;font-size:13px;font-weight:500;color:var(--mut);margin-bottom:4px}
 .req{color:var(--bad)}
-input,select,textarea{font:inherit;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
-input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 20%,transparent)}
+input,select,textarea{font:inherit;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:color-mix(in srgb,var(--bg) 82%,var(--card));color:var(--ink);transition:border-color .16s,box-shadow .16s}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
 .chk{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;color:var(--ink);cursor:pointer}
 .chk input{width:auto;margin-top:3px}
 .err{color:var(--bad);font-size:12.5px;margin-top:4px}
 .err.top{margin:0 0 12px;font-size:13.5px}
-.go{width:100%;padding:12px 16px;border:0;border-radius:10px;background:var(--accent);color:var(--on);font:600 15px "IBM Plex Sans",system-ui,sans-serif;cursor:pointer}
-.go:disabled{opacity:.6;cursor:wait}
+.go{width:100%;padding:12px 16px;border:0;border-radius:999px;background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 76%,var(--g2)));color:var(--on);font:600 15px "IBM Plex Sans",system-ui,sans-serif;cursor:pointer;box-shadow:0 8px 22px var(--glow),inset 0 1px 0 rgba(255,255,255,.32);transition:transform .16s,box-shadow .16s,opacity .16s}
+.go:hover{transform:translateY(-1px);box-shadow:0 12px 28px var(--glow)}
+.go:disabled{opacity:.6;cursor:wait;transform:none}
 .hp{position:absolute;left:-9999px;height:0;overflow:hidden}
 </style>
 </head>
@@ -34,8 +37,6 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
-/* Public lead form. Anonymous visitors can only call two database functions:
-   get_public_form (reads the form definition) and submit_lead (saves the lead). */
 const C = window.CRM_CONFIG, sb = supabase.createClient(C.supabaseUrl, C.supabaseAnonKey);
 const q = new URLSearchParams(location.search), slug = q.get('f') || '';
 const t0 = Date.now(); let form = null, busy = false;
@@ -46,7 +47,6 @@ document.documentElement.style.setProperty('--brand', C.accent);
 if (q.get('embed')) document.body.classList.add('embed');
 
 function say(html) { $('#card').innerHTML = html; }
-// Tell a parent page how tall the form is (optional auto-resize for embeds)
 new ResizeObserver(() => { try { parent.postMessage({ loomwellFormHeight: document.documentElement.scrollHeight }, '*'); } catch (e) {} }).observe(document.body);
 
 async function init() {
@@ -86,7 +86,7 @@ async function submit(e) {
     const { data, error } = await sb.rpc('submit_lead', { p_slug: slug, p_payload: p, p_hp: $('#hp').value, p_elapsed_ms: Date.now() - t0 });
     res = error ? { ok: false, error: 'network' } : data;
   } catch (x) { res = { ok: false, error: 'network' }; }
-  busy = false; b.disabled = false; b.textContent = form.submit_label || 'Send';   // typed answers stay in place on failure
+  busy = false; b.disabled = false; b.textContent = form.submit_label || 'Send';
   if (res && res.ok) return done(res);
   fail(res || {});
 }
