@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Form</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--brand:#4b3fd6;--accent:var(--brand);--on:#fff;--bg:#f4f3fc;--card:#fff;--ink:#1a1840;--mut:#5b5a7d;--line:#dcd9f0;--bad:#d94646}
+@media(prefers-color-scheme:dark){:root{--accent:color-mix(in srgb,var(--brand) 62%,#fff);--on:#13112b;--bg:#110f26;--card:#1b183a;--ink:#ecebfa;--mut:#9e9cc8;--line:#2d2959;--bad:#f87171}}
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;color:var(--ink);font:400 15px/1.5 "IBM Plex Sans",system-ui,sans-serif;background:radial-gradient(800px 380px at 85% -10%,color-mix(in srgb,var(--brand) 18%,transparent),transparent 65%),var(--bg)}
+body.embed{display:block;min-height:0;padding:4px;background:transparent}
+#card{width:100%;max-width:520px;margin:auto;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px}
+h1{font:700 1.5rem/1.15 "Bricolage Grotesque","IBM Plex Sans",sans-serif;margin:0 0 6px}
+.desc{color:var(--mut);margin:0 0 18px}
+.fld{margin:0 0 14px}
+.fld>label{display:block;font-size:13px;font-weight:500;color:var(--mut);margin-bottom:4px}
+.req{color:var(--bad)}
+input,select,textarea{font:inherit;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 20%,transparent)}
+.chk{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;color:var(--ink);cursor:pointer}
+.chk input{width:auto;margin-top:3px}
+.err{color:var(--bad);font-size:12.5px;margin-top:4px}
+.err.top{margin:0 0 12px;font-size:13.5px}
+.go{width:100%;padding:12px 16px;border:0;border-radius:10px;background:var(--accent);color:var(--on);font:600 15px "IBM Plex Sans",system-ui,sans-serif;cursor:pointer}
+.go:disabled{opacity:.6;cursor:wait}
+.hp{position:absolute;left:-9999px;height:0;overflow:hidden}
+</style>
+</head>
+<body>
+<main id="card"><p class="desc">Loading…</p></main>
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+/* Public lead form. Anonymous visitors can only call two database functions:
+   get_public_form (reads the form definition) and submit_lead (saves the lead). */
+const C = window.CRM_CONFIG, sb = supabase.createClient(C.supabaseUrl, C.supabaseAnonKey);
+const q = new URLSearchParams(location.search), slug = q.get('f') || '';
+const t0 = Date.now(); let form = null, busy = false;
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const AC = { first_name: 'given-name', last_name: 'family-name', email: 'email', phone: 'tel', company: 'organization' };
+document.documentElement.style.setProperty('--brand', C.accent);
+if (q.get('embed')) document.body.classList.add('embed');
+
+function say(html) { $('#card').innerHTML = html; }
+// Tell a parent page how tall the form is (optional auto-resize for embeds)
+new ResizeObserver(() => { try { parent.postMessage({ loomwellFormHeight: document.documentElement.scrollHeight }, '*'); } catch (e) {} }).observe(document.body);
+
+async function init() {
+  if (!slug) return say('<h1>Form not found</h1><p class="desc">This link is missing its form name.</p>');
+  const { data, error } = await sb.rpc('get_public_form', { p_slug: slug });
+  if (error) return say('<h1>Something went wrong</h1><p class="desc">Please try again in a moment.</p>');
+  if (!data) return say('<h1>Form not available</h1><p class="desc">This form does not exist or is no longer accepting responses.</p>');
+  form = data; document.title = form.title || form.name; draw();
+}
+function field(f) {
+  const id = 'f_' + f.key, req = f.required ? ' <span class="req">*</span>' : '', err = `<div class="err" id="e_${esc(f.key)}" hidden></div>`;
+  if (f.type === 'consent' || f.type === 'checkbox')
+    return `<div class="fld"><label class="chk"><input type="checkbox" id="${id}" data-key="${esc(f.key)}"><span>${esc(f.type === 'consent' ? (form.consent_text || f.label) : f.label)}${req}</span></label>${err}</div>`;
+  const ctl = f.type === 'textarea' ? `<textarea id="${id}" data-key="${esc(f.key)}" rows="4" maxlength="5000"></textarea>`
+    : f.type === 'select' ? `<select id="${id}" data-key="${esc(f.key)}"><option value="">Select…</option>${(f.options || []).map(o => { const v = typeof o === 'string' ? o : o.value, l = typeof o === 'string' ? o : (o.label || o.value); return `<option value="${esc(v)}">${esc(l)}</option>`; }).join('')}</select>`
+    : `<input id="${id}" data-key="${esc(f.key)}" type="${f.type === 'email' ? 'email' : f.type === 'tel' ? 'tel' : 'text'}" maxlength="500" autocomplete="${AC[f.key] || 'off'}">`;
+  return `<div class="fld"><label for="${id}">${esc(f.label)}${req}</label>${ctl}${err}</div>`;
+}
+function draw() {
+  say(`<h1>${esc(form.title || form.name)}</h1>${form.description ? `<p class="desc">${esc(form.description)}</p>` : ''}
+    <form id="f" novalidate>${(form.fields || []).map(field).join('')}
+    <div class="hp" aria-hidden="true"><label>Leave this empty<input id="hp" name="hp_x" tabindex="-1" autocomplete="off"></label></div>
+    <div class="err top" id="top" role="alert" hidden></div>
+    <button class="go" id="go">${esc(form.submit_label || 'Send')}</button></form>`);
+  $('#f').onsubmit = submit;
+}
+async function submit(e) {
+  e.preventDefault(); if (busy) return; busy = true;
+  document.querySelectorAll('.err').forEach(x => x.hidden = true);
+  const p = {};
+  document.querySelectorAll('[data-key]').forEach(el => { p[el.dataset.key] = el.type === 'checkbox' ? el.checked : el.value.trim(); });
+  ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'].forEach(k => { if (q.get(k)) p[k] = q.get(k).slice(0, 500); });
+  const ref = q.get('ref') || document.referrer; if (ref) p.referrer = ref.slice(0, 500);
+  const b = $('#go'); b.disabled = true; b.textContent = 'Sending…';
+  let res;
+  try {
+    const { data, error } = await sb.rpc('submit_lead', { p_slug: slug, p_payload: p, p_hp: $('#hp').value, p_elapsed_ms: Date.now() - t0 });
+    res = error ? { ok: false, error: 'network' } : data;
+  } catch (x) { res = { ok: false, error: 'network' }; }
+  busy = false; b.disabled = false; b.textContent = form.submit_label || 'Send';   // typed answers stay in place on failure
+  if (res && res.ok) return done(res);
+  fail(res || {});
+}
+function done(r) {
+  say(`<h1>Thank you</h1><p class="desc">${esc(r.message || 'Thanks, we will be in touch soon.')}</p>`);
+  if (r.redirect_url && /^https?:\/\//i.test(r.redirect_url)) setTimeout(() => { location.href = r.redirect_url; }, 1500);
+}
+function fail(r) {
+  const top = $('#top');
+  if (r.error === 'invalid') {
+    (r.fields || []).forEach(k => {
+      const e = $('#e_' + k), f = (form.fields || []).find(x => x.key === k);
+      if (e) { e.textContent = 'Please check ' + (f ? f.label.toLowerCase() : 'this field') + '.'; e.hidden = false; }
+    });
+    if (!document.querySelector('.err:not([hidden]):not(.top)')) { top.textContent = 'Please check your answers and try again.'; top.hidden = false; }
+    return;
+  }
+  top.textContent = { rate_limited: 'Too many attempts. Please wait a few minutes and try again.', form_not_found: 'This form is no longer available.',
+    network: 'Could not reach the server. Your answers are still here, so please try again.' }[r.error] || 'Something went wrong. Please try again.';
+  top.hidden = false;
+}
+init();
+</script>
+</body>
+</html>

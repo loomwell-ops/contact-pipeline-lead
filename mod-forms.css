@@ -1,0 +1,26 @@
+/* MODULE 2 (lead forms) styles. Uses the theme variables from style.css, so light and dark both work. */
+.fshell{display:grid;grid-template-columns:240px 1fr;gap:18px;align-items:start}
+.flist{display:flex;flex-direction:column;gap:8px;position:sticky;top:90px}
+.fitem{padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);cursor:pointer;display:flex;flex-direction:column;gap:2px}
+.fitem small,.fdetail small{color:var(--muted)}
+.fitem.on{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 16%,transparent)}
+.fdetail{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;min-width:0}
+.fdetail h3{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:18px 0 8px}
+.fdetail .chk{display:flex;align-items:center;gap:6px}.fdetail .chk input{width:auto;margin:0}
+.fdetail code{background:var(--surface-2);padding:1px 5px;border-radius:5px}
+.tabs{display:flex;gap:6px;margin-bottom:14px}
+.tabs button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.frow{display:grid;grid-template-columns:1fr 1.4fr 120px auto;gap:6px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+.frow>input[data-f=options]{grid-column:1/4}
+.fb{grid-column:4;display:flex;gap:4px;justify-content:flex-end}
+.sm{padding:5px 9px;font-size:12.5px;border-radius:8px}
+.code{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:12.5px/1.5 ui-monospace,monospace;word-break:break-all;margin-bottom:8px}
+.warn{color:#d97706}
+.pill{display:inline-block;background:var(--surface-2);border:1px solid var(--line);border-radius:99px;padding:1px 9px;margin:0 4px 2px 0;font-size:12px}
+.pill.accepted{color:var(--won);border-color:var(--won)}.pill.spam{color:var(--muted)}
+.pill.invalid{color:#d97706;border-color:#d97706}.pill.rate_limited{color:var(--lost);border-color:var(--lost)}
+.fcard{border:1px solid var(--line);border-left:4px solid var(--accent);background:var(--surface-2);border-radius:12px;padding:12px;margin:8px 0}
+.fh{display:flex;justify-content:space-between;gap:8px;margin-bottom:6px}.fh .badge{font-size:12px;font-weight:600;color:var(--accent)}
+.qa{display:grid;grid-template-columns:130px 1fr;gap:8px;padding:4px 0;font-size:13.5px}.qa span{color:var(--muted)}.pills{margin-top:6px}
+@media(max-width:900px){.fshell{grid-template-columns:1fr}.flist{position:static;flex-direction:row;flex-wrap:wrap}.frow{grid-template-columns:1fr 1fr}.fb{grid-column:auto}}
+@media(max-width:720px){.qa{grid-template-columns:1fr;gap:0}}

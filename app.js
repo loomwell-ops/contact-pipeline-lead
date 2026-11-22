@@ -8,6 +8,8 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 let fmt; try { fmt = new Intl.NumberFormat(C.locale || undefined, { style: 'currency', currency: C.currency || 'USD', minimumFractionDigits: 0, maximumFractionDigits: 2 }); } catch { fmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 2 }); }
 const money = n => fmt.format(Number(n || 0));
 const S = { contacts: [], stages: [], deals: [], pipeline: null, view: 'pipeline', q: '', tag: '', selectedContact: null, sort: { k: '', d: 1 }, lim: 100 };
+// Hooks for add-on modules (mod-*.js): extra views, page titles, timeline cards by activity type, and a merge callback.
+const EXT = window.CRM_EXT = { views: {}, titles: {}, cards: {}, onMerge: [] };
 let dirty = false, pending = 0, lastFocus = null, manualOut = false;
 function resetState() { Object.assign(S, { contacts: [], stages: [], deals: [], pipeline: null, selectedContact: null, q: '', tag: '', sort: { k: '', d: 1 }, lim: 100 }); dirty = false; $('#view').innerHTML = ''; }
 
@@ -264,6 +266,7 @@ function openDupes() {
     try {
       await ok(sb.from('deals').update({ contact_id: pid }).in('contact_id', oids));
       await ok(sb.from('activities').update({ contact_id: pid }).in('contact_id', oids));
+      for (const h of EXT.onMerge) await h(pid, oids);
       await ok(sb.from('contacts').delete().in('id', oids));
       await ok(sb.from('contacts').update(row).eq('id', pid));
     } catch { await load(); render(); return; }
@@ -336,7 +339,7 @@ async function load() {
   if (S.selectedContact && !contactById(S.selectedContact)) S.selectedContact = null;
 }
 
-$$('#railNav button').forEach(b => b.onclick = () => { if (dirty && !confirm('Discard unsaved changes?')) return; dirty = false; S.view = b.dataset.v; render(true); });
+$('#railNav').addEventListener('click', e => { const b = e.target.closest('button[data-v]'); if (!b) return; if (dirty && !confirm('Discard unsaved changes?')) return; dirty = false; S.view = b.dataset.v; render(true); });   // delegated, so add-on modules can add nav buttons
 let enterT;
 function startEnter() { const v = $('#view'); clearTimeout(enterT); v.classList.remove('enter'); void v.offsetWidth; v.classList.add('enter'); enterT = setTimeout(() => v.classList.remove('enter'), 1000); }
 function indexStagger() { ['.colw', '.card', '#rows tr', '.rp-row'].forEach(s => $$(s, $('#view')).forEach((el, i) => el.style.setProperty('--i', Math.min(i, 12)))); }
@@ -344,10 +347,10 @@ function render(nav) {
   $$('#railNav button').forEach(b => { const on = b.dataset.v === S.view; b.classList.toggle('on', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   movePill(nav === true);
   if (nav === true) { startEnter(); SEL.clear(); }
-  const titles = { pipeline: 'Pipeline', contacts: 'Contacts', reports: 'Reports', settings: 'Stage Settings' };
+  const titles = { pipeline: 'Pipeline', contacts: 'Contacts', reports: 'Reports', settings: 'Stage Settings', ...EXT.titles };
   $('#viewTitle').textContent = titles[S.view] || '';
   $('#viewActions').innerHTML = '';
-  ({ contacts: viewContacts, pipeline: viewBoard, reports: viewReports, settings: viewSettings })[S.view]();
+  ({ contacts: viewContacts, pipeline: viewBoard, reports: viewReports, settings: viewSettings, ...EXT.views })[S.view]();
   if (nav === true) indexStagger();
 }
 
@@ -471,7 +474,7 @@ function mountContactEditor(container, id, isInline) {
 async function loadNotes(id, root = document) {
   const n = await ok(sb.from('activities').select('*').eq('contact_id', id).order('created_at', { ascending: false }));
   const el = $('#notes', root); if (!el) return;
-  el.innerHTML = n.map(a => `<div class="note"><small>${new Date(a.created_at).toLocaleString()}</small><p>${esc(a.body)}</p></div>`).join('') || '<p class="muted" style="font-size:13.5px">No notes yet.</p>';
+  el.innerHTML = n.map(a => (EXT.cards[a.type] && a.data) ? EXT.cards[a.type](a) : `<div class="note"><small>${new Date(a.created_at).toLocaleString()}</small><p>${esc(a.body)}</p></div>`).join('') || '<p class="muted" style="font-size:13.5px">No notes yet.</p>';
 }
 
 function openContact(id) {
