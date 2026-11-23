@@ -1,4 +1,4 @@
-/* Module 1 CRM: contacts, pipeline, notes. Plain JS, no build step.
+/* Module 1 CRM: Spatial Glass & Caustic Light Edition. Plain JS, no build step.
    All data goes through Supabase; Row Level Security enforces who may read/write. */
 const C = window.CRM_CONFIG;
 const sb = supabase.createClient(C.supabaseUrl, C.supabaseAnonKey);
@@ -19,6 +19,142 @@ document.documentElement.style.setProperty('--brand', C.accent);
 $('#brand').textContent = $('#loginBrand').textContent = $('#loginBrandSide').textContent = C.businessName;
 $('#brandMark').textContent = C.businessName.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
 
+// ---------- Native WebGL Caustic Light Shader (Loomwell Indigo / Violet / Coral-Gold) ----------
+let causticSurge = 0;
+function pulseCaustic(amount = 0.8) { causticSurge = Math.min(2.2, causticSurge + amount); }
+
+(function initCausticWebGL() {
+  const canvas = $('#causticCanvas');
+  if (!canvas || matchMedia('(prefers-reduced-motion:reduce)').matches) return;
+  const gl = canvas.getContext('webgl', { alpha: false, antialias: false, powerPreference: 'high-performance' });
+  if (!gl) return;
+
+  const vsSrc = `attribute vec2 a_pos; void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }`;
+  const fsSrc = `
+    precision mediump float;
+    uniform vec2 u_res;
+    uniform vec2 u_mouse;
+    uniform float u_time;
+    uniform float u_dark;
+    uniform float u_surge;
+
+    float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
+    float noise(vec2 p) {
+      vec2 i = floor(p), f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+                 mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+    }
+    float fbm(vec2 p) {
+      float v = 0.0, a = 0.5;
+      mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);
+      for (int i = 0; i < 4; i++) { v += a * noise(p); p = rot * p * 2.02; a *= 0.5; }
+      return v;
+    }
+
+    void main() {
+      vec2 uv = gl_FragCoord.xy / u_res.xy;
+      vec2 p = (gl_FragCoord.xy - 0.5 * u_res.xy) / min(u_res.x, u_res.y);
+      vec2 m = (u_mouse - 0.5) * 0.45;
+      float t = u_time * 0.14;
+
+      vec2 q = vec2(fbm(p * 1.45 + vec2(t * 0.7, -t * 0.4) + m),
+                    fbm(p * 1.45 + vec2(-t * 0.5, t * 0.6) + vec2(5.2, 1.3)));
+      vec2 r = vec2(fbm(p * 1.8 + 2.4 * q + vec2(1.7, 9.2) + t * 0.35),
+                    fbm(p * 1.8 + 2.4 * q + vec2(8.3, 2.8) - t * 0.3));
+      float f = fbm(p * 1.6 + 2.2 * r);
+
+      // Sharp optical caustic ridges
+      float caustic = pow(clamp(1.0 - abs(sin((f * 4.5 + r.x * 2.2) * 3.14159)), 0.0, 1.0), 5.0);
+      float ribbon = smoothstep(0.32, 0.86, f);
+      float glowBoost = 1.0 + u_surge * 0.55;
+
+      // Dark mode: Midnight Indigo (#13112b) + Electric Violet (#4b3fd6 / #9c93ff) + Warm Coral-Gold (#ff9a76 / #f3c76b)
+      vec3 dBase = vec3(0.075, 0.067, 0.169);
+      vec3 dViolet = vec3(0.294, 0.247, 0.839);
+      vec3 dLavender = vec3(0.612, 0.576, 1.000);
+      vec3 dCoral = vec3(1.000, 0.604, 0.463);
+      vec3 dGold = vec3(0.953, 0.780, 0.420);
+
+      vec3 darkCol = dBase;
+      darkCol += dViolet * ribbon * 0.36 * glowBoost;
+      darkCol += dLavender * caustic * 0.26 * glowBoost;
+      darkCol += mix(dCoral, dGold, r.y) * pow(caustic, 1.8) * 0.32 * glowBoost;
+      darkCol *= 0.86 + 0.22 * (1.0 - length(uv - vec2(0.72, 0.32)));
+
+      // Light mode: Soft Alabaster-Lavender (#f6f5fd) + Delicate Indigo & Warm Peach Refraction
+      vec3 lBase = vec3(0.965, 0.961, 0.992);
+      vec3 lIndigo = vec3(0.840, 0.825, 0.985);
+      vec3 lPeach = vec3(0.992, 0.910, 0.875);
+      vec3 lightCol = mix(lBase, lIndigo, ribbon * 0.52);
+      lightCol = mix(lightCol, lPeach, caustic * 0.48 * glowBoost);
+      lightCol += vec3(0.03, 0.02, 0.06) * caustic * u_surge * 0.25;
+
+      vec3 col = mix(lightCol, darkCol, u_dark);
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `;
+
+  function compile(type, src) {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    return sh;
+  }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, vsSrc));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fsSrc));
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, 'a_pos');
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+  const uRes = gl.getUniformLocation(prog, 'u_res');
+  const uMouse = gl.getUniformLocation(prog, 'u_mouse');
+  const uTime = gl.getUniformLocation(prog, 'u_time');
+  const uDark = gl.getUniformLocation(prog, 'u_dark');
+  const uSurge = gl.getUniformLocation(prog, 'u_surge');
+
+  let mx = 0.65, my = 0.35, cmx = 0.65, cmy = 0.35;
+  let darkVal = document.documentElement.getAttribute('data-theme') === 'dark' ? 1 : 0;
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    canvas.width = Math.floor(window.innerWidth * dpr);
+    canvas.height = Math.floor(window.innerHeight * dpr);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+  }
+  resize();
+  window.addEventListener('resize', resize);
+  window.addEventListener('pointermove', e => {
+    mx = e.clientX / Math.max(1, window.innerWidth);
+    my = 1.0 - e.clientY / Math.max(1, window.innerHeight);
+  }, { passive: true });
+
+  const t0 = performance.now();
+  (function frame(now) {
+    requestAnimationFrame(frame);
+    if (document.hidden) return;
+    const targetDark = document.documentElement.getAttribute('data-theme') === 'dark' ? 1 : 0;
+    darkVal += (targetDark - darkVal) * 0.08;
+    cmx += (mx - cmx) * 0.04;
+    cmy += (my - cmy) * 0.04;
+    causticSurge *= 0.94;
+
+    gl.uniform2f(uRes, canvas.width, canvas.height);
+    gl.uniform2f(uMouse, cmx, cmy);
+    gl.uniform1f(uTime, (now - t0) * 0.001);
+    gl.uniform1f(uDark, darkVal);
+    gl.uniform1f(uSurge, causticSurge);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  })(t0);
+})();
+
 // ---------- circular theme toggle (View Transitions API) ----------
 function setThemeIcon(t) {
   $('#themeIcon').innerHTML = t === 'dark'
@@ -33,6 +169,7 @@ $('#themeBtn').onclick = e => {
     r.setAttribute('data-theme', next);
     setThemeIcon(next);
     try { localStorage.setItem('crm-theme', next); } catch {}
+    pulseCaustic(0.6);
   };
   if (!document.startViewTransition || matchMedia('(prefers-reduced-motion:reduce)').matches) return apply();
   const rect = e.currentTarget.getBoundingClientRect();
@@ -42,15 +179,15 @@ $('#themeBtn').onclick = e => {
   vt.ready.then(() => {
     document.documentElement.animate(
       { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${end}px at ${x}px ${y}px)`] },
-      { duration: 520, easing: 'cubic-bezier(.22,1,.36,1)', pseudoElement: '::view-transition-new(root)' }
+      { duration: 480, easing: 'cubic-bezier(.22,1,.36,1)', pseudoElement: '::view-transition-new(root)' }
     );
   });
 };
 
-// ---------- cursor-following frosted glass rim spotlight ----------
+// ---------- cursor-following specular sheen on frosted monolith deal cards ----------
 if (matchMedia('(hover: hover)').matches) {
   $('#app').addEventListener('pointermove', e => {
-    const card = e.target.closest('.summary-bar, .settings-card, .colw');
+    const card = e.target.closest('.card');
     if (!card) return;
     const r = card.getBoundingClientRect();
     card.style.setProperty('--mx', (e.clientX - r.left).toFixed(1) + 'px');
@@ -58,7 +195,8 @@ if (matchMedia('(hover: hover)').matches) {
   }, { passive: true });
 }
 
-// ---------- offset-safe liquid-elastic rail pill ----------
+// ---------- offset-safe liquid-elastic bottom dock pill ----------
+const reduced = () => matchMedia('(prefers-reduced-motion:reduce)').matches;
 let pillPos = null;
 function movePill(animate) {
   const a = $('#railNav button.on'), p = $('#railPill'); if (!a || !p) return;
@@ -66,19 +204,16 @@ function movePill(animate) {
   pillPos = { x, y, w };
   p.getAnimations().forEach(n => n.cancel());
   p.style.width = w + 'px'; p.style.height = h + 'px'; p.style.transform = `translate(${x}px, ${y}px)`;
-  if (animate !== true || !from || (from.x === x && from.y === y) || matchMedia('(prefers-reduced-motion:reduce)').matches) return;
-  const vert = Math.abs(y - from.y) >= Math.abs(x - from.x), sx = Math.min(x, from.x), sy = Math.min(y, from.y);
-  const sw = vert ? w : Math.max(x + w, from.x + (from.w || w)) - sx, sh = vert ? h + Math.abs(y - from.y) : h;
+  if (animate !== true || !from || (from.x === x && from.y === y) || reduced()) return;
+  const sx = Math.min(x, from.x), sw = Math.max(x + w, from.x + (from.w || w)) - sx;
   p.animate([
-    { transform: `translate(${from.x}px, ${from.y}px)`, width: (from.w || w) + 'px', height: h + 'px', boxShadow: '0 8px 24px rgba(75,63,214,.55)', easing: 'cubic-bezier(.2,.9,.3,1)' },
-    { transform: `translate(${sx}px, ${sy}px)`, width: sw + 'px', height: sh + 'px', boxShadow: '0 10px 32px rgba(194,78,23,.65), 0 0 24px rgba(156,147,255,.7)', offset: .38, easing: 'cubic-bezier(.34,1.45,.64,1)' },
-    { transform: `translate(${x}px, ${y}px)`, width: w + 'px', height: h + 'px', boxShadow: '0 8px 24px rgba(75,63,214,.55)' }
-  ], { duration: 600 });
+    { transform: `translate(${from.x}px, ${y}px)`, width: (from.w || w) + 'px', height: h + 'px', easing: 'cubic-bezier(.2,.9,.3,1)' },
+    { transform: `translate(${sx}px, ${y}px)`, width: sw + 'px', height: h + 'px', offset: .38, easing: 'cubic-bezier(.34,1.45,.64,1)' },
+    { transform: `translate(${x}px, ${y}px)`, width: w + 'px', height: h + 'px' }
+  ], { duration: 480 });
 }
-window.addEventListener('resize', movePill);
+window.addEventListener('resize', () => { movePill(); moveTagPill(); });
 
-// ---------- collapsible rail (desktop) ----------
-const reduced = () => matchMedia('(prefers-reduced-motion:reduce)').matches;
 let tagPos = null;
 function moveTagPill(animate) {
   const a = $('.tag-pill.on'), p = $('#tagPill'); if (!a || !p) return;
@@ -93,20 +228,10 @@ function moveTagPill(animate) {
     { transform: `translate(${from.x}px, ${y}px)`, width: from.w + 'px', easing: 'cubic-bezier(.2,.9,.3,1)' },
     { transform: `translate(${sx}px, ${y}px)`, width: sw + 'px', offset: .38, easing: 'cubic-bezier(.34,1.45,.64,1)' },
     { transform: `translate(${x}px, ${y}px)`, width: w + 'px' }
-  ], { duration: 460 });
+  ], { duration: 440 });
 }
-window.addEventListener('resize', () => moveTagPill());
-function setRail(open, persist) {
-  const t = $('#railToggle');
-  $('#app').classList.toggle('rail-open', open);
-  t.setAttribute('aria-expanded', open); t.setAttribute('aria-label', open ? 'Collapse sidebar' : 'Expand sidebar'); t.dataset.tip = open ? 'Collapse' : 'Expand';
-  if (!persist) return;
-  try { localStorage.setItem('crm-rail', open ? '1' : '0'); } catch {}
-  const t0 = performance.now();
-  (function f() { movePill(); moveTagPill(); if (performance.now() - t0 < 400) requestAnimationFrame(f); })();
-}
-try { if (localStorage.getItem('crm-rail') === '1') setRail(true, false); } catch {}
-$('#railToggle').onclick = () => setRail(!$('#app').classList.contains('rail-open'), true);
+
+if ($('#cmdBtn')) $('#cmdBtn').onclick = () => openPalette();
 
 // ---------- helpers ----------
 let tt;
@@ -164,20 +289,22 @@ function animateKPIs() {
   });
 }
 
-// ---------- 24-tick radial Win Rate gauge ----------
+// ---------- 60-tick Swiss Horology radial Win Rate dial ----------
 function winGauge(closedCount, wonCount) {
-  const ticks = 24;
+  const ticks = 60;
   const active = closedCount ? Math.round((wonCount / closedCount) * ticks) : 0;
   let lines = '';
   for (let i = 0; i < ticks; i++) {
-    const deg = -180 + (i / (ticks - 1)) * 180;
+    const deg = -90 + (i / ticks) * 360;
     const rad = deg * Math.PI / 180;
     const c = Math.cos(rad), s = Math.sin(rad);
-    const x1 = (32 + 21 * c).toFixed(2), y1 = (32 + 21 * s).toFixed(2);
-    const x2 = (32 + 28 * c).toFixed(2), y2 = (32 + 28 * s).toFixed(2);
-    lines += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke-width="2.2" stroke-linecap="round"${i < active ? ` class="on" style="--t:${i}"` : ''}/>`;
+    const major = i % 5 === 0;
+    const r1 = major ? 21 : 24, r2 = 29;
+    const x1 = (32 + r1 * c).toFixed(2), y1 = (32 + r1 * s).toFixed(2);
+    const x2 = (32 + r2 * c).toFixed(2), y2 = (32 + r2 * s).toFixed(2);
+    lines += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke-width="${major ? '1.8' : '1.1'}" stroke-linecap="round"${i < active ? ` class="on" style="--t:${i}"` : ''}/>`;
   }
-  return `<svg viewBox="0 0 64 36" class="win-dial" aria-hidden="true">${lines}</svg>`;
+  return `<svg viewBox="0 0 64 64" class="win-dial" aria-hidden="true">${lines}</svg>`;
 }
 
 // ---------- undo toast ----------
@@ -250,7 +377,7 @@ function viewReports() {
   $('#view').innerHTML = `<div class="summary-bar">
       <div class="kpi gold"><span>Open Pipeline</span><b data-val="${openVal}" data-kind="money">${money(openVal)}</b><small>${open.length} open deal(s)</small></div>
       <div class="kpi won"><span>Won Revenue</span><b data-val="${wonVal}" data-kind="money">${money(wonVal)}</b><small>${won.length} closed won</small></div>
-      <div class="kpi"><div class="kpi-win-wrap"><div><span>Win Rate</span><b${closed ? ` data-val="${rate}" data-kind="pct"` : ''}>${closed ? rate + '%' : '—'}</b></div>${winGauge(closed, won.length)}</div><small>${closed} closed total</small></div>
+      <div class="kpi"><div class="kpi-win-wrap"><div><span>Win Rate</span><b${closed ? ` data-val="${rate}" data-kind="pct"` : ''}>${closed ? rate + '%' : '—'}</b><small>${closed} closed total</small></div>${winGauge(closed, won.length)}</div></div>
       <div class="kpi"><span>New Leads (7 days)</span><b data-val="${leads7d}" data-kind="num">${leads7d}</b><small>${S.contacts.length} contacts total</small></div>
     </div>
     <div class="rp-grid">
@@ -332,7 +459,7 @@ function openDupes() {
 }
 
 // ---------- auth (FR-1) ----------
-function show(on) { $('#login').hidden = on; $('#app').hidden = !on; if (on) requestAnimationFrame(movePill); }
+function show(on) { $('#login').hidden = on; $('#app').hidden = !on; if (on) requestAnimationFrame(() => movePill(false)); }
 $('#loginForm').onsubmit = async e => {
   e.preventDefault(); const b = $('#loginBtn'); b.disabled = true; b.textContent = 'Logging in…';
   const { error } = await sb.auth.signInWithPassword({ email: $('#email').value.trim(), password: $('#password').value });
@@ -376,7 +503,6 @@ async function start() {
   }
 }
 
-// FR-2: first run creates the default pipeline and stages once
 async function setup() {
   let p = await ok(sb.from('pipelines').select('*').order('created_at'));
   if (!p.length) {
@@ -403,7 +529,7 @@ function indexStagger() { ['.colw', '.card', '#rows tr', '.rp-row'].forEach(s =>
 function render(nav) {
   $$('#railNav button').forEach(b => { const on = b.dataset.v === S.view; b.classList.toggle('on', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   movePill(nav === true);
-  if (nav === true) { startEnter(); SEL.clear(); }
+  if (nav === true) { startEnter(); SEL.clear(); pulseCaustic(0.65); }
   const titles = { pipeline: 'Pipeline', contacts: 'Contacts', reports: 'Reports', settings: 'Stage Settings', ...EXT.titles };
   $('#viewTitle').textContent = titles[S.view] || '';
   $('#viewActions').innerHTML = '';
@@ -436,7 +562,7 @@ document.addEventListener('keydown', e => {
   else if (!e.shiftKey && (document.activeElement === z || out)) { e.preventDefault(); a.focus(); }
 });
 
-// ---------- shared contact inspector (atmospheric avatar-tinted header banner) ----------
+// ---------- shared contact inspector ----------
 const cfv = v => typeof v === 'string' ? v : JSON.stringify(v);
 const cfRow = (k = '', v = '') => `<div class="cf-row"><input class="cf-k" placeholder="Field" aria-label="Field name" value="${esc(k)}"><input class="cf-v" placeholder="Value" aria-label="Field value" value="${esc(v)}"><button type="button" class="ghost cf-x" aria-label="Remove field">×</button></div>`;
 function contactLinks(c) {
@@ -672,7 +798,7 @@ function viewBoard() {
     <div class="summary-bar">
       <div class="kpi gold"><span>Active Pipeline</span><b data-val="${openVal}" data-kind="money">${money(openVal)}</b><small>${openDeals.length} open deal(s)</small></div>
       <div class="kpi won"><span>Won Revenue</span><b data-val="${wonVal}" data-kind="money">${money(wonVal)}</b><small>${wonDeals.length} closed won</small></div>
-      <div class="kpi"><div class="kpi-win-wrap"><div><span>Win Rate</span><b${closedCount ? ` data-val="${rateNum}" data-kind="pct"` : ''}>${winRate}</b></div>${winGauge(closedCount, wonDeals.length)}</div><small>${closedCount} closed total</small></div>
+      <div class="kpi"><div class="kpi-win-wrap"><div><span>Win Rate</span><b${closedCount ? ` data-val="${rateNum}" data-kind="pct"` : ''}>${winRate}</b><small>${closedCount} closed total</small></div>${winGauge(closedCount, wonDeals.length)}</div></div>
       <div class="kpi"><span>Total Contacts</span><b data-val="${S.contacts.length}" data-kind="num">${S.contacts.length}</b><small>${S.stages.length} pipeline stages</small></div>
     </div>
     <div class="pf"><input id="pfq" type="search" placeholder="Filter deals by title or contact…" aria-label="Filter deals" value="${esc(PF.q)}"><select id="pfs" aria-label="Status"><option value="">All statuses</option>${['open', 'won', 'lost'].map(x => `<option value="${x}" ${PF.st === x ? 'selected' : ''}>${x[0].toUpperCase() + x.slice(1)}</option>`).join('')}</select><input id="pfm" type="number" min="0" placeholder="Min value" aria-label="Minimum value" value="${esc(PF.min)}"></div>
@@ -706,7 +832,7 @@ function viewBoard() {
     if (el) {
       el.classList.add('landed');
       const colw = el.closest('.colw');
-      if (colw && colw.classList.contains('st-won')) colw.classList.add('won-celebrate');
+      if (colw && colw.classList.contains('st-won')) { colw.classList.add('won-celebrate'); pulseCaustic(1.4); }
     }
   }
 }

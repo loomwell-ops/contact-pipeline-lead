@@ -143,7 +143,7 @@ const nav = document.getElementById('railNav');
 if (nav && !nav.querySelector('[data-v="forms"]')) {
   const b = document.createElement('button');
   b.type = 'button'; b.dataset.v = 'forms'; b.dataset.tip = 'Lead Forms'; b.setAttribute('aria-label', 'Lead Forms'); b.style.setProperty('--ri', '2');
-  b.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/></svg><span>Lead Forms</span>';
+  b.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/></svg><span>Lead Forms</span>';
   const after = nav.querySelector('[data-v="contacts"]'); if (after) after.after(b); else nav.append(b);
 }
 })();
