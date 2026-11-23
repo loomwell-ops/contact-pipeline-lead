@@ -1093,3 +1093,31 @@ tbody tr.more td { text-align: center; }
   100% { box-shadow: 0 20px 46px var(--glow), 0 4px 0 rgba(12, 10, 32, .65), inset 0 1px 0 rgba(255, 255, 255, .36); }
 }
 .summary-bar.surge { animation: doomsdayPulse .72s cubic-bezier(.22, 1, .36, 1); }
+
+/* ---- V5 CINEMATIC VISUAL EFFECTS LAYER (Pure VFX — Zero UX Changes) ---- */
+.summary-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(115deg, transparent 25%, rgba(255, 255, 255, .14) 48%, rgba(255, 154, 118, .16) 52%, transparent 75%);
+  transform: translateX(-120%);
+  animation: kpiSheen 7.5s cubic-bezier(.22, 1, .36, 1) infinite;
+}
+@keyframes kpiSheen {
+  0%, 62% { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+}
+@keyframes topDealAura {
+  0%, 100% { box-shadow: 0 10px 26px color-mix(in srgb, var(--g2) 20%, transparent), inset 0 1px 0 rgba(255, 255, 255, .45); }
+  50% { box-shadow: 0 14px 34px color-mix(in srgb, var(--g2) 36%, transparent), 0 0 18px color-mix(in srgb, var(--accent) 24%, transparent), inset 0 1px 0 rgba(255, 255, 255, .6); }
+}
+.card.top-deal { animation: topDealAura 4.2s ease-in-out infinite; }
+.box::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 16px; right: 16px; height: 1.5px;
+  background: linear-gradient(90deg, transparent, var(--accent), var(--g2), transparent);
+  pointer-events: none;
+}
